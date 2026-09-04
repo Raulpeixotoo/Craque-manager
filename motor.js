@@ -93,6 +93,7 @@ const TIMES_MUNDO=gerarClubesConfederacao('SA',CIDADES_MUNDO.SA,55,['C','D'])
   .concat(gerarClubesConfederacao('NA',CIDADES_MUNDO.NA,70,['A','B','C','D']));
 const RODADAS_TEMPORADA=(12-1)*2;
 const DIAS_ENTRE_RODADAS=4;
+const TREINO_PONTOS_POR_RODADA=10;
 function diaDaRodada(r){return (r+1)*(DIAS_ENTRE_RODADAS+1);}
 const CAIXA_TIER={A:[18,40],B:[8,18],C:[3,7],D:[1,3]};
 const CAIXA_BONUS_TEMPORADA={A:5e6,B:2e6,C:1e6,D:.4e6};
@@ -146,7 +147,7 @@ function novoJogo(idMeu){
   const state={versaoMundo:2,seq:0,temporada:1,rodada:0,dia:0,jogadores:{},times:[],meuTime:idMeu,noticias:[],financas:[],fimTemporada:false,titulos:[],diasParaJogo:DIAS_ENTRE_RODADAS,rivalId:rivalDe(idMeu),classico:{v:0,e:0,d:0},pedidoPendente:null,ofertaPendente:null,janela:{aberta:true,dias:10,meioAberta:false},premiosTemporada:[]};
   TIMES_BASE.concat(TIMES_MUNDO).forEach((b,i)=>{
     const conf=b.conf||'SA',faixa=CAIXA_TIER[b.div];
-    const t={...b,id:i,conf,formacao:pick(Object.keys(FORMACOES)),estilo:'equilibrado',jogadores:[],titulares:[],moral:70,
+    const t={...b,id:i,conf,formacao:pick(Object.keys(FORMACOES)),estilo:'equilibrado',jogadores:[],titulares:[],moral:70,pontosTreino:TREINO_PONTOS_POR_RODADA,ofertaHumana:null,
       treino:{passe:0,falta:0,penalti:0,fisico:0},staff:{fisico:0,goleiro:0,olheiro:0},capacidade:Math.round(b.torcida*1.15),patrocinio:0,baseNivel:0,prospectos:[],
       caixa:rnd(faixa[0],faixa[1])*1e6};
     ELENCO_BASE.forEach(([pos,n])=>{for(let k=0;k<n;k++){const j=gerarJogador(state,pos,b.forca);j.time=i;state.jogadores[j.id]=j;t.jogadores.push(j.id);}});
@@ -460,6 +461,7 @@ function novaTemporada(state){
     noticia(state,'Novo garoto na base: '+novo.nome+' ('+pos+', '+novo.idade+' anos).');
   }
   state.temporada++;state.dia=0;gerarTemporada(state);gerarCopa(state);gerarTorneiosContinentais(state);state.diasParaJogo=DIAS_ENTRE_RODADAS;
+  m.pontosTreino=TREINO_PONTOS_POR_RODADA;
   state.janela={aberta:true,dias:10,meioAberta:false};
   noticia(state,'Temporada '+state.temporada+' começou. Janela de transferências aberta (10 dias). Cota de participação depositada.');
 }
@@ -579,6 +581,7 @@ function concluirRodada(state){
   if(state.rodada>=RODADAS_TEMPORADA)state.fimTemporada=true;
   m.treino={passe:Math.round(m.treino.passe*.4),falta:Math.round(m.treino.falta*.4),penalti:Math.round(m.treino.penalti*.4),fisico:Math.round(m.treino.fisico*.4)};
   state.diasParaJogo=DIAS_ENTRE_RODADAS;
+  m.pontosTreino=TREINO_PONTOS_POR_RODADA;
   if(state.janela.aberta){state.janela.dias--;if(state.janela.dias<=0)state.janela.aberta=false;}
   if(!state.janela.meioAberta&&state.rodada===Math.floor(RODADAS_TEMPORADA/2)){
     state.janela={aberta:true,dias:10,meioAberta:true};noticia(state,'Janela de transferências do meio da temporada aberta! 10 dias.');
@@ -588,7 +591,7 @@ function concluirRodada(state){
 return {
   // dados
   NOMES,SOBRENOMES,APELIDOS,POSICOES,ELENCO_BASE,TIMES_BASE,CONFEDERACOES,CONF_NOME,
-  CIDADES_MUNDO,SUFIXOS_POR_CONF,TIMES_MUNDO,RODADAS_TEMPORADA,DIAS_ENTRE_RODADAS,
+  CIDADES_MUNDO,SUFIXOS_POR_CONF,TIMES_MUNDO,RODADAS_TEMPORADA,DIAS_ENTRE_RODADAS,TREINO_PONTOS_POR_RODADA,
   CAIXA_TIER,CAIXA_BONUS_TEMPORADA,TITULO_PREMIO,FORMACOES,ESTILOS,COMPAT,TV,TREINOS,
   STAFF_NOMES,STAFF_DESC,FASES_COPA,CLASSICOS,TIPOS_FALTA,TIPOS_PENALTI,
   // utilidades

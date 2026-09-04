@@ -29,7 +29,7 @@ const Motor = require('../motor.js');
 const PORTA = 3000;
 const ARQUIVO_MUNDO = path.join(__dirname, 'mundo.json');
 const TIMEOUT_LOBBY_MS = 5 * 60 * 1000; // 5 min sem todo mundo pronto -> força sozinho
-const TREINO_PONTOS_POR_RODADA = 10; // orçamento de treino de cada clube, renovado a cada rodada
+const TREINO_PONTOS_POR_RODADA = Motor.TREINO_PONTOS_POR_RODADA; // orçamento de treino de cada clube, renovado a cada rodada — mesma constante do solo
 
 function rodadaEstadoPadrao() {
   return { status: 'lobby', prontos: [], timeoutAt: Date.now() + TIMEOUT_LOBBY_MS };
@@ -38,7 +38,7 @@ function rodadaEstadoPadrao() {
 function carregarOuCriarMundo() {
   if (fs.existsSync(ARQUIVO_MUNDO)) {
     const mundo = JSON.parse(fs.readFileSync(ARQUIVO_MUNDO, 'utf8'));
-    mundo.times.forEach(t => { if (t.controlador === undefined) t.controlador = null; if (t.pontosTreino === undefined) t.pontosTreino = TREINO_PONTOS_POR_RODADA; });
+    mundo.times.forEach(t => { if (t.controlador === undefined) t.controlador = null; if (t.pontosTreino === undefined) t.pontosTreino = TREINO_PONTOS_POR_RODADA; if (t.ofertaHumana === undefined) t.ofertaHumana = null; });
     if (!mundo.rodadaEstado || mundo.rodadaEstado.status !== 'lobby') {
       // Se o servidor caiu no meio de uma rodada ao vivo, as partidas em memória se
       // perdem — mas os jogos que ainda não têm placar continuam com gc:null no
@@ -411,7 +411,11 @@ const ACOES = {
     if (clube.titulares.includes(j.id)) throw new Error('Jogador titular precisa sair do time antes de ser vendido.');
     if (clube.jogadores.length <= 16) throw new Error('Elenco no mínimo de 16 jogadores.');
     const preco = Math.round(j.valor * .85 / 1e4) * 1e4;
-    const para = Motor.pick(mundo.times.filter(t => t.id !== clube.id && t.jogadores.length < 25)) || mundo.times.find(t => t.id !== clube.id);
+    // Só vende pra clube controlado por IA — jogar um jogador pra dentro do elenco de outro
+    // humano sem ele saber/aceitar seria o mesmo problema do proporOferta (ver abaixo).
+    const candidatos = mundo.times.filter(t => t.id !== clube.id && !t.controlador && t.jogadores.length < 25);
+    const para = Motor.pick(candidatos);
+    if (!para) throw new Error('Nenhum clube disponível pra comprar esse jogador agora.');
     Motor.transferir(mundo, j, clube, para, preco);
     Motor.noticia(mundo, j.nome + ' vendido ao ' + para.nome + ' por ' + Motor.fmt(preco) + ' (' + clube.nome + ').');
   },
@@ -426,6 +430,15 @@ const ACOES = {
     const oferta = Math.round(Number(p.oferta) / 1e4) * 1e4;
     if (!oferta || oferta <= 0) throw new Error('Valor de oferta inválido.');
     if (clube.caixa < oferta) throw new Error('Caixa insuficiente para essa proposta.');
+    // Se o dono do jogador é outro humano, a proposta fica pendente pra ELE decidir — não dá
+    // pra resolver sozinho com a mesma fórmula usada contra clubes de IA (era isso que fazia
+    // o jogador do amigo mudar de mão sem ele ter a chance de aceitar ou recusar).
+    if (de.controlador) {
+      if (de.ofertaHumana) throw new Error(de.nome + ' já está analisando outra proposta agora.');
+      de.ofertaHumana = { jogadorId: j.id, compradorId: clube.id, oferta };
+      Motor.noticia(mundo, clube.nome + ' propôs ' + Motor.fmt(oferta) + ' por ' + j.nome + ' ao ' + de.nome + '.');
+      return;
+    }
     let minimo = j.valor;
     if (de.titulares.includes(j.id)) minimo *= 1.4;
     if (de.jogadores.length <= 17) minimo *= 1.25;
@@ -437,6 +450,21 @@ const ACOES = {
     } else {
       throw new Error(de.nome + ' recusou a proposta. Eles pedem pelo menos ' + Motor.fmt(Math.round(minimo / 1e4) * 1e4) + '.');
     }
+  },
+  resolverOfertaHumana: (clube, p) => {
+    const of = clube.ofertaHumana;
+    if (!of) return;
+    clube.ofertaHumana = null;
+    const comprador = mundo.times[of.compradorId];
+    const j = Motor.J(mundo, of.jogadorId);
+    if (!j || j.time !== clube.id) return; // já não é mais do clube por outro motivo enquanto a proposta esperava
+    if (!p.aceitar) { Motor.noticia(mundo, clube.nome + ' recusou a proposta de ' + Motor.fmt(of.oferta) + ' do ' + comprador.nome + ' por ' + j.nome + '.'); return; }
+    if (clube.jogadores.length <= 11) { Motor.noticia(mundo, 'Proposta por ' + j.nome + ' caducou: ' + clube.nome + ' ficaria sem jogadores suficientes.'); return; }
+    if (comprador.caixa < of.oferta) { Motor.noticia(mundo, 'Proposta por ' + j.nome + ' caducou: ' + comprador.nome + ' não tem mais caixa suficiente.'); return; }
+    if (comprador.jogadores.length >= 25) { Motor.noticia(mundo, 'Proposta por ' + j.nome + ' caducou: elenco do ' + comprador.nome + ' está cheio.'); return; }
+    Motor.transferir(mundo, j, clube, comprador, of.oferta);
+    j.moral = 80;
+    Motor.noticia(mundo, 'Negócio fechado! ' + comprador.nome + ' contratou ' + j.nome + ' do ' + clube.nome + ' por ' + Motor.fmt(of.oferta) + '.');
   },
 };
 

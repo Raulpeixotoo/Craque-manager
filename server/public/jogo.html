@@ -203,6 +203,17 @@ function painelOferta(){
   <tr><td>Valor de mercado</td><td class="r">${fmt(j.valor)}</td></tr></table>
   <button class="primario" onclick="resolverOferta(true)">Aceitar</button> <button onclick="resolverOferta(false)">Recusar</button></div>`;
 }
+function resolverOfertaHumana(aceitar){acao('resolverOfertaHumana',{aceitar});}
+function painelOfertaHumana(){
+  const m=meu(),of=m.ofertaHumana;if(!of)return'';
+  const j=J(of.jogadorId),comp=state.times[of.compradorId];
+  return `<div class="painel" style="border-color:var(--amarelo);margin-bottom:18px"><h3>💰 Proposta de outro clube</h3>
+  <p><b>${esc(comp.nome)}</b>${comp.controlador?' ('+esc(comp.controlador.nome)+')':''} propôs <b>${fmt(of.oferta)}</b> por <b>${esc(j.nome)}</b>${estrelaTag(j.forca)}.</p>
+  <table style="margin:8px 0"><tr><td>Posição</td><td class="r"><span class="tag ${j.pos}">${j.pos}</span></td></tr>
+  <tr><td>Força</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td></tr>
+  <tr><td>Valor de mercado</td><td class="r">${fmt(j.valor)}</td></tr></table>
+  <button class="primario" onclick="resolverOfertaHumana(true)">Aceitar</button> <button onclick="resolverOfertaHumana(false)">Recusar</button></div>`;
+}
 
 /* ============ RENDER ============ */
 const app=document.getElementById('app');
@@ -262,7 +273,7 @@ function telaInicio(){
   const ehClassicoProx=prox&&state.rivalId!=null&&(prox.casa===state.rivalId||prox.fora===state.rivalId);
   const emAndamento=state.rodadaEstado.status==='em_andamento';
   const pm=pmAtual();
-  return `${painelPedido()}${painelOferta()}<div class="grid g3"><div>
+  return `${painelPedido()}${painelOferta()}${painelOfertaHumana()}<div class="grid g3"><div>
     ${pm?telaPartidaAoVivo(pm)
       :emAndamento?'<div class="painel"><h3>Rodada rolando</h3><p class="aviso">Aguardando as partidas ao vivo da rodada terminarem para fechar o seu resultado...</p></div>'
       :prox?`<div class="painel"><h3>Próximo jogo — rodada ${state.rodada+1}</h3>
@@ -532,9 +543,11 @@ function telaMercado(){
 }
 function telaClube(id){
   const t=state.times[id],js=t.jogadores.map(J).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.forca-a.forca);
+  const pendente=t.ofertaHumana;
   return `<div class="painel" style="margin-top:14px"><h3>${esc(t.nome)} <span class="muted" style="font-size:13px">— ${esc(t.cidade)} · Série ${t.div} · ${posicao(t.id)}º lugar · caixa ${fmt(t.caixa)}</span></h3>
+  ${pendente?`<p class="aviso">${pendente.compradorId===meu().id?'Sua proposta está':'Já há uma proposta'} em análise — aguarde a resposta antes de propor outra.</p>`:''}
   <table><tr><th>Nome</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Valor</th><th></th></tr>
-  ${js.map(j=>`<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}${t.titulares.includes(j.id)?' <b style="color:var(--amarelo)">T</b>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.valor)}</td><td><button ${state.janela.aberta&&t.jogadores.length>11?'':'disabled'} onclick="proporOferta(${j.id})">Propor oferta</button></td></tr>`).join('')}</table></div>`;
+  ${js.map(j=>`<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}${t.titulares.includes(j.id)?' <b style="color:var(--amarelo)">T</b>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.valor)}</td><td><button ${state.janela.aberta&&t.jogadores.length>11&&!pendente?'':'disabled'} onclick="proporOferta(${j.id})">Propor oferta</button></td></tr>`).join('')}</table></div>`;
 }
 function proporOferta(id){
   if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}
@@ -549,6 +562,7 @@ function proporOferta(id){
   if(!oferta||oferta<=0){alert('Valor inválido.');return;}
   if(m.caixa<oferta){alert('Caixa insuficiente para essa proposta.');return;}
   acao('proporOferta',{jogadorId:id,oferta});
+  if(de.controlador)alert('Proposta enviada a '+de.controlador.nome+' — aguarde a resposta.');
 }
 function comprar(id,preco){
   if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}

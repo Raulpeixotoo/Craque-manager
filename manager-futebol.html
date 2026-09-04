@@ -120,7 +120,7 @@ td.r,th.r{text-align:right}
    `state` deste navegador, pra não precisar tocar no resto do arquivo. */
 const {FORMACOES, ESTILOS, CONF_NOME, CONFEDERACOES, POSICOES, TV, TREINOS, STAFF_NOMES,
   STAFF_DESC, TIPOS_FALTA, TIPOS_PENALTI, TIMES_BASE, TIMES_MUNDO, RODADAS_TEMPORADA,
-  DIAS_ENTRE_RODADAS, diaDaRodada, FASES_COPA, rnd, pick, clamp, fmt, rivalDe} = Motor;
+  diaDaRodada, FASES_COPA, rnd, pick, clamp, fmt, rivalDe} = Motor;
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 /* ============ ESTADO ============ */
@@ -365,7 +365,7 @@ function carregar(){try{const s=localStorage.getItem(KEY);if(!s)return null;cons
     if(st.mundial===undefined)st.mundial=null;
     if(!st.premiosTemporada)st.premiosTemporada=[];
     Object.values(st.jogadores).forEach(j=>{if(j.assistencias===undefined)j.assistencias=0;});
-    st.times.forEach(t=>{if(t.baseNivel===undefined)t.baseNivel=0;if(!t.prospectos)t.prospectos=[];});
+    st.times.forEach(t=>{if(t.baseNivel===undefined)t.baseNivel=0;if(!t.prospectos)t.prospectos=[];if(t.pontosTreino===undefined)t.pontosTreino=Motor.TREINO_PONTOS_POR_RODADA;});
     Object.values(st.jogadores).forEach(j=>{if(j.emBase===undefined)j.emBase=false;});
     Object.values(st.jogadores).forEach(j=>{if(j.lesao===undefined){j.lesao=0;j.lesaoTipo='';}
       if(j.contrato===undefined)j.contrato=rnd(1,4);
@@ -398,7 +398,6 @@ function render(){
       <div><span>Moral</span><b class="num">${m.moral}</b></div>
     </div>
     ${emJogo?'':state.fimTemporada?`<button class="primario" onclick="ui.tela='temporada';render()">Encerrar temporada</button>`:
-      state.diasParaJogo>0?`<button class="primario" disabled title="Treine antes da rodada, na aba Treino">${state.diasParaJogo} dia(s) de treino restantes</button>`:
       `<button class="primario" onclick="iniciarRodada()">Jogar rodada ${state.rodada+1}</button>`}
   </header>
   <nav>${telas.map(([id,n])=>`<button class="${ui.tela===id?'ativo':''}" ${emJogo?'disabled':''} onclick="ui.tela='${id}';ui.sel=null;render()">${n}</button>`).join('')}
@@ -508,10 +507,10 @@ function clicar(id){
   ui.sel=null;salvar();render();
 }
 function treinar(tipo){
-  if(state.diasParaJogo<=0||state.fimTemporada)return;
-  Motor.treinar(state,meu().id,tipo);
-  state.diasParaJogo--;state.dia++;
-  if(state.janela.aberta){state.janela.dias--;if(state.janela.dias<=0)state.janela.aberta=false;}
+  const m=meu();
+  if((m.pontosTreino||0)<=0||state.fimTemporada)return;
+  Motor.treinar(state,m.id,tipo);
+  m.pontosTreino--;
   salvar();render();
 }
 function barraTreino(n,v){
@@ -544,32 +543,15 @@ function painelMundial(){
   }else corpo=`<p class="muted">Aguardando os campeões continentais (${feitos}/5 definidos) para disputar o Mundial de Clubes.</p>`;
   return `<div class="painel"><h2>🌍 Mundial de Clubes</h2>${corpo}</div>`;
 }
-function faixaDias(){
-  const total=DIAS_ENTRE_RODADAS,restantes=state.diasParaJogo,feitos=clamp(total-restantes,0,total);
-  const caixas=[];
-  for(let i=1;i<=total;i++){
-    const done=i<=feitos,hoje=!done&&i===feitos+1;
-    caixas.push(`<div style="flex:1;text-align:center;padding:10px 4px;border-radius:4px;background:${done?'rgba(126,224,129,.15)':'var(--board)'};border:1px solid ${hoje?'var(--amarelo)':'var(--linha)'}">
-      <div style="font-size:18px">${done?'✔️':hoje?'📋':'·'}</div>
-      <div class="muted" style="font-size:10px">Treino ${i}</div></div>`);
-  }
-  caixas.push(`<div style="flex:1;text-align:center;padding:10px 4px;border-radius:4px;background:${restantes<=0?'rgba(245,197,24,.25)':'var(--board)'};border:1px solid var(--amarelo)">
-    <div style="font-size:18px">⚽</div><div class="muted" style="font-size:10px">Jogo</div></div>`);
-  return `<div style="display:flex;gap:4px;margin:10px 0">${caixas.join('')}</div>`;
-}
 function telaCalendario(){
   const m=meu();
   const jogos=state.calendario[m.conf][m.div].map((r,i)=>({r:i,dia:diaDaRodada(i),g:r.find(g=>g.casa===m.id||g.fora===m.id)})).filter(x=>x.g);
-  const pronto=state.diasParaJogo<=0;
   const dm=m.jogadores.map(J).filter(j=>j.lesao>0||j.suspenso>0);
   return `<div class="grid g2">
-  <div class="painel"><h2>Treino da semana</h2>
-  <p class="muted">Dia <b class="num">${state.dia}</b> da temporada.</p>
-  ${state.fimTemporada?'<p class="muted">Temporada encerrada.</p>':pronto?
-    `<div class="ok">Elenco pronto! Clique em "Jogar rodada" no topo para entrar em campo.</div>`:
-    `<p class="muted">Faltam <b class="num">${state.diasParaJogo}</b> dia(s) para a rodada ${state.rodada+1} (dia ${diaDaRodada(state.rodada)}). Escolha o treino de hoje:</p>
-    <div class="taticas">${Object.keys(TREINOS).map(k=>`<button onclick="treinar('${k}')">${TREINOS[k]}</button>`).join('')}<button onclick="treinar('folga')">Folga</button></div>`}
-  ${state.fimTemporada?'':faixaDias()}
+  <div class="painel"><h2>Treino — ${m.pontosTreino??0} ponto(s) restante(s)</h2>
+  ${state.fimTemporada?'<p class="muted">Temporada encerrada.</p>':
+    `<p class="muted">Cada ação de treino (ou folga) gasta 1 ponto. Os pontos renovam a cada rodada — escolha bem antes de jogar.</p>
+    <div class="taticas">${Object.keys(TREINOS).map(k=>`<button ${m.pontosTreino>0?'':'disabled'} onclick="treinar('${k}')">${TREINOS[k]}</button>`).join('')}<button ${m.pontosTreino>0?'':'disabled'} onclick="treinar('folga')">Folga</button></div>`}
   <div style="margin-top:14px">${Object.keys(TREINOS).map(k=>barraTreino(TREINOS[k],m.treino[k]||0)).join('')}</div>
   <p class="muted" style="margin-top:10px">Passes e Físico reforçam o ataque/defesa da equipe em jogo. Faltas e Pênaltis aumentam a chance de gols de bola parada. Treinar tem um pequeno risco de lesão; Folga recupera moral e acelera a recuperação de lesões, sem risco.</p>
   </div>
