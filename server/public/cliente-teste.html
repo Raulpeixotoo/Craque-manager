@@ -58,8 +58,17 @@ function reivindicar(clubeId) {
   socket.emit('entrar', { clubeId, apelido });
 }
 
-function jogarRodada() {
-  socket.emit('jogarRodada');
+function ficarPronto(clubeId, pronto) {
+  socket.emit('ficarPronto', { clubeId, pronto });
+}
+
+function forcarInicio() {
+  socket.emit('forcarInicio');
+}
+
+function fmtContagem(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return Math.floor(s / 60) + 'm' + String(s % 60).padStart(2, '0') + 's';
 }
 
 function telaEntrar() {
@@ -108,12 +117,34 @@ function telaPrincipal(meu) {
         : jogo
           ? `<div class="placar">${mundo.times[jogo.casa].nome} ${jogado?jogo.gc:'-'} x ${jogado?jogo.gf:'-'} ${mundo.times[jogo.fora].nome}</div>`
           : '<p>Sem jogo encontrado pra essa rodada (raro — confira o calendário).'}
-      <button class="primario" onclick="jogarRodada()" ${mundo.fimTemporada?'disabled':''}>Jogar rodada</button>
-      <p class="aviso">Esse botão roda a rodada pra todo mundo — sem lobby ainda, é só clicar.</p>
     </div>
+    ${!mundo.fimTemporada ? telaLobby(meu) : ''}
     <div class="painel">
       <h2>Notícias</h2>
       <div class="noticias">${mundo.noticias.slice(0,15).map(n => `<div><small>T${n.t} R${n.r}</small>${n.txt}</div>`).join('') || '<p class="aviso">Nada ainda.</p>'}</div>
+    </div>`;
+}
+
+function telaLobby(meu) {
+  const humanos = mundo.times.filter(t => t.controlador);
+  const prontos = mundo.rodadaEstado.prontos;
+  const euEstouPronto = prontos.includes(meu.id);
+  const faltam = Math.max(0, mundo.rodadaEstado.timeoutAt - Date.now());
+  return `
+    <div class="painel">
+      <h2>Lobby da rodada — ${prontos.length}/${humanos.length} prontos</h2>
+      <div class="clubes">
+        ${humanos.map(t => `
+          <div class="clube ${prontos.includes(t.id)?'':'ocupado'}">
+            <div class="cor" style="background:${t.cor1}"></div>
+            <div><b>${t.nome}</b><small>${t.controlador.nome} · ${prontos.includes(t.id)?'✔️ pronto':'aguardando'}</small></div>
+          </div>`).join('')}
+      </div>
+      <p style="margin-top:10px">
+        <button class="primario" onclick="ficarPronto(${meu.id}, ${!euEstouPronto})">${euEstouPronto?'Cancelar pronto':'Ficar pronto'}</button>
+        <button onclick="forcarInicio()">Forçar início agora</button>
+      </p>
+      <p class="aviso">Se ninguém forçar, a rodada roda sozinha em <b id="contagem">${fmtContagem(faltam)}</b> — quem não confirmou entra do jeito que estava escalado.</p>
     </div>`;
 }
 
@@ -127,6 +158,13 @@ function render() {
 socket.on('mundo', m => { mundo = m; render(); });
 socket.on('erro', msg => { erro = msg; render(); });
 socket.on('connect_error', () => { document.getElementById('app').innerHTML = '<main><p>Não consegui conectar ao servidor.</p></main>'; });
+
+// Só atualiza o texto da contagem regressiva a cada segundo, sem re-renderizar a tela
+// inteira (isso evitaria limpar um erro recém-mostrado antes da hora).
+setInterval(() => {
+  const el = document.getElementById('contagem');
+  if (el && mundo && !mundo.fimTemporada) el.textContent = fmtContagem(mundo.rodadaEstado.timeoutAt - Date.now());
+}, 1000);
 
 render();
 </script>

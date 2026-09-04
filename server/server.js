@@ -1,8 +1,10 @@
 /* ============================================================
-   Servidor mínimo — Fase 1 do plano de multiplayer.
-   Guarda um único mundo compartilhado, sem lobby ainda: qualquer
-   cliente conectado pode reivindicar um clube livre e qualquer um
-   pode clicar "jogar rodada" — ela roda pra todo mundo.
+   Servidor — Fase 2 do plano de multiplayer (lobby com "pronto").
+   Guarda um único mundo compartilhado. Cada rodada abre em lobby;
+   os clubes reivindicados por humanos marcam "pronto", e a rodada
+   só roda quando todos estiverem prontos — ou quando alguém força
+   (manualmente ou por timeout), com quem sumiu sendo coberto pela
+   própria escalação/decisões já em vigor (equivalente à IA assumir).
    ============================================================ */
 const fs = require('fs');
 const path = require('path');
@@ -13,24 +15,43 @@ const Motor = require('../motor.js');
 
 const PORTA = 3000;
 const ARQUIVO_MUNDO = path.join(__dirname, 'mundo.json');
+const TIMEOUT_LOBBY_MS = 5 * 60 * 1000; // 5 min sem todo mundo pronto -> força sozinho
+
+function rodadaEstadoPadrao() {
+  return { status: 'lobby', prontos: [], timeoutAt: Date.now() + TIMEOUT_LOBBY_MS };
+}
 
 function carregarOuCriarMundo() {
   if (fs.existsSync(ARQUIVO_MUNDO)) {
     const mundo = JSON.parse(fs.readFileSync(ARQUIVO_MUNDO, 'utf8'));
     mundo.times.forEach(t => { if (t.controlador === undefined) t.controlador = null; });
+    if (!mundo.rodadaEstado) mundo.rodadaEstado = rodadaEstadoPadrao();
     console.log('Mundo carregado de mundo.json — temporada', mundo.temporada, 'rodada', mundo.rodada + 1);
     return mundo;
   }
   const mundo = Motor.novoJogo(0);
   mundo.times.forEach(t => { t.controlador = null; });
+  mundo.rodadaEstado = rodadaEstadoPadrao();
   console.log('Nenhum mundo.json encontrado — mundo novo criado.');
   return mundo;
 }
 
 let mundo = carregarOuCriarMundo();
+let timeoutHandle = null;
 
 function salvar() {
   fs.writeFileSync(ARQUIVO_MUNDO, JSON.stringify(mundo));
+}
+
+function timesHumanos() {
+  return mundo.times.filter(t => t.controlador !== null);
+}
+
+function agendarTimeout() {
+  clearTimeout(timeoutHandle);
+  if (mundo.fimTemporada) return;
+  const restante = mundo.rodadaEstado.timeoutAt - Date.now();
+  timeoutHandle = setTimeout(resolverRodadaAgora, Math.max(0, restante));
 }
 
 // Time de referência pra o que o motor ainda trata como "meuTime" (clássico, copas,
@@ -58,6 +79,27 @@ function simularRodadaCompleta() {
   });
 }
 
+// Roda a rodada agora, prontos ou não — chamada quando todo mundo confirmou, quando
+// alguém força manualmente, ou quando o timeout do lobby estoura.
+function resolverRodadaAgora() {
+  clearTimeout(timeoutHandle);
+  if (mundo.fimTemporada || mundo.rodadaEstado.status !== 'lobby') return;
+  const naoProntos = timesHumanos().filter(t => !mundo.rodadaEstado.prontos.includes(t.id));
+  mundo.rodadaEstado.status = 'em_andamento';
+  mundo.meuTime = timeDeReferencia();
+  Motor.prepararRodada(mundo);
+  simularRodadaCompleta();
+  Motor.concluirRodada(mundo);
+  if (naoProntos.length) {
+    Motor.noticia(mundo, 'Rodada iniciada sem confirmação de: ' + naoProntos.map(t => t.nome).join(', ') + '.');
+  }
+  mundo.rodadaEstado = rodadaEstadoPadrao();
+  salvar();
+  io.emit('mundo', mundo);
+  console.log('Rodada resolvida — agora em', mundo.rodada + 1, naoProntos.length ? `(${naoProntos.length} sem confirmar)` : '(todos prontos)');
+  agendarTimeout();
+}
+
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 const servidorHttp = http.createServer(app);
@@ -78,19 +120,28 @@ io.on('connection', socket => {
     console.log(apelido.trim(), 'reivindicou', time.nome);
   });
 
-  socket.on('jogarRodada', () => {
-    if (mundo.fimTemporada) { socket.emit('erro', 'Temporada encerrada — ainda não dá pra iniciar a próxima por aqui.'); return; }
-    mundo.meuTime = timeDeReferencia();
-    Motor.prepararRodada(mundo);
-    simularRodadaCompleta();
-    Motor.concluirRodada(mundo);
+  socket.on('ficarPronto', ({ clubeId, pronto }) => {
+    const time = mundo.times[clubeId];
+    if (!time || time.controlador === null) { socket.emit('erro', 'Reivindique um clube antes de ficar pronto.'); return; }
+    if (mundo.rodadaEstado.status !== 'lobby') { socket.emit('erro', 'A rodada já está rolando.'); return; }
+    const prontos = mundo.rodadaEstado.prontos;
+    const idx = prontos.indexOf(clubeId);
+    if (pronto && idx < 0) prontos.push(clubeId);
+    else if (!pronto && idx >= 0) prontos.splice(idx, 1);
     salvar();
     io.emit('mundo', mundo);
-    console.log('Rodada resolvida — agora em', mundo.rodada + 1);
+    const humanos = timesHumanos();
+    if (humanos.length && humanos.every(t => prontos.includes(t.id))) {
+      resolverRodadaAgora();
+    }
   });
+
+  socket.on('forcarInicio', () => resolverRodadaAgora());
 
   socket.on('disconnect', () => console.log('Cliente desconectado:', socket.id));
 });
+
+agendarTimeout();
 
 servidorHttp.listen(PORTA, '0.0.0.0', () => {
   console.log(`Servidor no ar em http://localhost:${PORTA}/cliente-teste.html`);
