@@ -64,6 +64,8 @@ td.r,th.r{text-align:right}
 .times{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:12px}
 .tcard{background:var(--painel);border:1px solid var(--linha);border-radius:6px;padding:10px;cursor:pointer;display:flex;align-items:center;gap:10px}
 .tcard:hover{border-color:var(--amarelo)}
+.tcard.ocupado{opacity:.5;cursor:not-allowed}
+.tcard.ocupado:hover{border-color:var(--linha)}
 .tcard .escudo{width:30px;height:30px;border-radius:50%;flex:none}
 .tcard small{display:block;color:var(--muted)}
 /* campo */
@@ -111,13 +113,27 @@ td.r,th.r{text-align:right}
 </head>
 <body>
 <div id="app"></div>
-<script src="motor.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/motor.js"></script>
 <script>
-/* ============ MOTOR (dados, geração de mundo e simulação) ============
-   Tudo isso agora mora em motor.js, sem depender de tela nem localStorage
-   — é o que a Fase 1 do plano de multiplayer vai reaproveitar no servidor.
-   Aqui só religamos os nomes de sempre a essa nova peça, injetando o
-   `state` deste navegador, pra não precisar tocar no resto do arquivo. */
+/* ============ MULTIPLAYER (Fase 5 do plano) ============
+   Este cliente é o manager-futebol.html de sempre, adaptado pra falar com o
+   servidor em vez de guardar tudo no localStorage. Toda tela de LEITURA (elenco,
+   tabela, finanças, calendário) continua igual — lê `state`, que agora é o mundo
+   compartilhado, sincronizado via socket.io. Toda AÇÃO que muda o mundo (treinar,
+   escalar, mercado, investimentos) deixa de mutar `state` na hora: manda um evento
+   `acao` pro servidor e espera o `state` atualizado voltar.
+
+   Fora do ar nesta fase (ver server.js e o histórico do projeto):
+   - Mercado de transferências (comprar/vender/propor oferta) — tela fica só de
+     leitura por enquanto; a trava contra duas pessoas comprando o mesmo jogador
+     ao mesmo tempo merece atenção própria antes de ligar isso.
+   - Pênaltis/faltas interativas em partidas ao vivo — resolvem sozinhas (ver
+     server.js), dar a escolha em tempo rede pra cada lado é feature à parte.
+   - Fim de temporada com vários humanos (quem decide "continuar" ou "trocar de
+     clube"? cada perspectiva vê promoção/rebaixamento diferente) — por enquanto
+     só mostra o resumo, sem os botões de ação do solo.
+   ============ */
 const {FORMACOES, ESTILOS, CONF_NOME, CONFEDERACOES, POSICOES, TV, TREINOS, STAFF_NOMES,
   STAFF_DESC, TIPOS_FALTA, TIPOS_PENALTI, TIMES_BASE, TIMES_MUNDO, RODADAS_TEMPORADA,
   DIAS_ENTRE_RODADAS, diaDaRodada, FASES_COPA, rnd, pick, clamp, fmt, rivalDe} = Motor;
@@ -125,191 +141,43 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 
 /* ============ ESTADO ============ */
 let state=null;
-let ui={tela:'menu',sel:null,filtroPos:'',filtroConf:'',filtroIdadeMax:'',filtroValorMax:'',partida:null,clubeVisto:null,menuConf:'SA',menuDiv:'A',vendaPendente:null};
+let partidasAoVivo=[];
+let erro=null;
+let ui={tela:'inicio',sel:null,filtroPos:'',filtroConf:'',filtroIdadeMax:'',filtroValorMax:'',clubeVisto:null};
+const KEY_APELIDO='craque_manager_apelido';
 
-/* Wrappers finos: religam os nomes de sempre às funções equivalentes do motor.js,
-   injetando o `state` deste navegador. As telas e os controllers abaixo continuam
-   chamando esses nomes exatamente como antes — só a implementação mudou de arquivo. */
-function noticia(txt){Motor.noticia(state,txt);}
-function novoJogo(idMeu){state=Motor.novoJogo(idMeu);salvar();}
-function autoEscalar(t){return Motor.autoEscalar(state,t);}
-function emCampo(t){return Motor.emCampo(state,t);}
+function meu(){
+  const apelido=localStorage.getItem(KEY_APELIDO);
+  if(!apelido||!state)return null;
+  return state.times.find(t=>t.controlador&&t.controlador.nome===apelido)||null;
+}
+const J=id=>state.jogadores[id];
+
+/* Ação genérica: manda o servidor aplicar e devolver o mundo atualizado, em vez de
+   mutar `state` direto e chamar salvar() como no solo. */
+function acao(tipo,params){socket.emit('acao',{clubeId:meu().id,tipo,params:params||{}});}
+function entrar(clubeId){
+  const apelido=document.getElementById('apelido').value.trim();
+  if(!apelido){erro='Escolha um apelido antes de clicar num clube.';render();return;}
+  localStorage.setItem(KEY_APELIDO,apelido);
+  socket.emit('entrar',{clubeId,apelido});
+}
+function ficarPronto(pronto){socket.emit('ficarPronto',{clubeId:meu().id,pronto});}
+function forcarInicio(){socket.emit('forcarInicio');}
+function fmtContagem(ms){const s=Math.max(0,Math.round(ms/1000));return Math.floor(s/60)+'m'+String(s%60).padStart(2,'0')+'s';}
+
+/* Só leitura — continuam computando a partir do `state` sincronizado, sem mutar nada. */
 function forcaTime(t,mando){return Motor.forcaTime(state,t,mando);}
-function criarPartida(g){return Motor.criarPartida(state,g);}
-function simularJogoCopa(a,b){return Motor.simularJogoCopa(state,a,b);}
-function jogarTorneio(torneio,premio,tituloNome){Motor.jogarTorneio(state,torneio,premio,tituloNome);salvar();render();}
-function gerarCopa(){return Motor.gerarCopa(state);}
-function gerarTorneiosContinentais(){return Motor.gerarTorneiosContinentais(state);}
 function tabela(conf,div){return Motor.tabela(state,conf,div);}
 function posicao(id){return Motor.posicao(state,id);}
 function resumoTemporada(conf){return Motor.resumoTemporada(state,conf);}
-function transferir(j,de,para,preco){return Motor.transferir(state,j,de,para,preco);}
 function rodadaAtual(){return Motor.rodadaAtual(state);}
-function novaTemporada(){Motor.novaTemporada(state);salvar();ui.tela='inicio';render();}
-function concluirRodada(){Motor.concluirRodada(state);salvar();}
-function hooksPartida(){
-  return {
-    interativo:timeId=>timeId===state.meuTime&&podeInteragir(),
-    onPenalti:(p,l,t)=>ativarCobranca(p,l,t,'penalti'),
-    onFalta:(p,l,t)=>ativarCobranca(p,l,t,'falta'),
-    onLesao:(p,l,t,jogador)=>forcarSubstituicao(jogador.id),
-  };
-}
-function minuto(p){return Motor.minuto(state,p,hooksPartida());}
-
-function jogarTorneioAoVivo(torneio,premio,tituloNome){
-  if(!torneio||torneio.campeao!=null||!torneio.jogos.length||state.rodada<torneio.rodadaAlvo)return;
-  const m=meu();
-  const idx=torneio.jogos.findIndex(g=>g.a===m.id||g.b===m.id);
-  if(idx<0){jogarTorneio(torneio,premio,tituloNome);return;}
-  iniciarPartidaCopa(torneio,idx,premio,tituloNome);
-}
-function iniciarPartidaCopa(torneio,idx,premio,tituloNome){
-  const m=meu();
-  if(m.titulares.some(id=>J(id).suspenso>0||J(id).lesao>0||J(id).selecao>0)){autoEscalar(m);noticia('Jogador suspenso, lesionado ou convocado foi retirado da escalação automaticamente.');}
-  const meuJogo=torneio.jogos[idx];
-  const outrosResultados=torneio.jogos.map((g,i)=>i===idx?null:simularJogoCopa(g.a,g.b));
-  const minhaPartida=criarPartida({casa:meuJogo.a,fora:meuJogo.b,gc:null,gf:null,eventos:[]});
-  ui.partida={jogos:{A:[minhaPartida],B:[],C:[],D:[]},timer:null,vel:1,pausado:false,subsUsadas:0,intervaloFeito:false,subForcada:null,
-    copa:{torneio,premio,tituloNome,idx,meuJogo,outrosResultados}};
-  ui.tela='partida';render();
-  setVelocidade(1);
-}
-function concluirPartidaCopa(){
-  const p=ui.partida,c=p.copa,jogo=p.jogos.A[0];
-  let vencedor,penaltis=null;
-  if(jogo.gc===jogo.gf){
-    vencedor=Math.random()<jogo.H.ata/(jogo.H.ata+jogo.A.ata)?c.meuJogo.a:c.meuJogo.b;
-    const pv=rnd(3,5),pp=rnd(Math.max(0,pv-3),pv-1);
-    penaltis=vencedor===c.meuJogo.a?(pv+'x'+pp):(pp+'x'+pv);
-  }else vencedor=jogo.gc>jogo.gf?c.meuJogo.a:c.meuJogo.b;
-  const meuResultado={a:c.meuJogo.a,b:c.meuJogo.b,gc:jogo.gc,gf:jogo.gf,vencedor,penaltis};
-  const resultados=c.outrosResultados.map((r,i)=>i===c.idx?meuResultado:r);
-  const torneio=c.torneio,m=meu(),faseAntes=torneio.fase;
-  torneio.historico.push({fase:faseAntes,rodada:state.rodada+1,resultados});
-  resultados.forEach(r=>{
-    const placar=r.gc+' x '+r.gf+(r.penaltis?' (pên. '+r.penaltis+')':'');
-    if(r.a===m.id||r.b===m.id)noticia((r.vencedor===m.id?'Você avançou! ':'Você foi eliminado. ')+'['+c.tituloNome+'] '+state.times[r.a].nome+' '+placar+' '+state.times[r.b].nome+'.');
-    else if(state.times[r.a].conf===m.conf||state.times[r.b].conf===m.conf)noticia('['+c.tituloNome+'] '+faseAntes+': '+state.times[r.a].nome+' '+placar+' '+state.times[r.b].nome+'.');
-  });
-  const vencedores=resultados.map(r=>r.vencedor);
-  if(vencedores.length===1){
-    torneio.campeao=vencedores[0];torneio.jogos=[];
-    if(torneio.campeao===m.id){m.caixa+=c.premio;state.titulos.push(c.tituloNome+' '+state.temporada);noticia('🏆 CAMPEÃO — '+c.tituloNome+'! Prêmio de '+fmt(c.premio)+' creditado.');}
-  }else{
-    const prox=[];for(let i=0;i<vencedores.length;i+=2)prox.push({a:vencedores[i],b:vencedores[i+1]});
-    torneio.jogos=prox;torneio.fase=FASES_COPA[prox.length]||'Fase final';torneio.rodadaAlvo=Math.min(state.rodada+4,RODADAS_TEMPORADA-1);
-  }
-  salvar();render();
-}
-function jogarRodadaCopa(){jogarTorneioAoVivo(state.copa,4e6,'Copa Nacional — '+CONF_NOME[meu().conf]);}
-function jogarTorneioContinental(){jogarTorneioAoVivo(state.continentais[meu().conf],7e6,'Copa Continental — '+CONF_NOME[meu().conf]);}
-const meu=()=>state.times[state.meuTime];
-const J=id=>state.jogadores[id];
 
 /* ============ CAMPO (geometria de tela) ============ */
 function coords(form){const linhas=form.split('-').map(Number),n=linhas.length,p=[{x:50,y:90}];
   linhas.forEach((k,i)=>{const y=74-i*(56/(n-1));for(let j=0;j<k;j++)p.push({x:100/(k+1)*(j+1),y});});return p;}
 
-/* ============ PARTIDA AO VIVO (interface) ============ */
-function podeInteragir(){return ui.tela==='partida'&&ui.partida&&ui.partida.vel!==0&&!ui.partida.cobranca;}
-function ativarCobranca(p,l,t,tipo){
-  ui.partida.cobranca={p,l,timeId:t.id,tipo,batedor:null};
-  clearInterval(ui.partida.timer);render();
-}
-function forcarSubstituicao(jogadorId){
-  ui.partida.subForcada=jogadorId;ui.partida.pausado=true;
-  clearInterval(ui.partida.timer);render();
-}
-function iniciarRodada(){
-  Motor.prepararRodada(state);
-  const r=rodadaAtual();
-  ui.partida={jogos:{A:r.A.map(criarPartida),B:r.B.map(criarPartida),C:r.C.map(criarPartida),D:r.D.map(criarPartida)},timer:null,vel:1,pausado:false,subsUsadas:0,intervaloFeito:false,subForcada:null};
-  ui.tela='partida';render();
-  setVelocidade(1);
-}
-function todosJogos(p){return [...p.jogos.A,...p.jogos.B,...p.jogos.C,...p.jogos.D];}
-function setVelocidade(v){
-  const p=ui.partida;p.vel=v;p.pausado=false;p.cobranca=null;clearInterval(p.timer);
-  const tick=()=>{todosJogos(p).forEach(minuto);
-    if(p.jogos.A[0].fim){clearInterval(p.timer);if(p.copa)concluirPartidaCopa();else concluirRodada();}
-    else if(p.cobranca){clearInterval(p.timer);}
-    else if(p.jogos.A[0].min===45&&!p.intervaloFeito){p.intervaloFeito=true;p.pausado=true;clearInterval(p.timer);}
-    render();};
-  if(v===0){while(!p.jogos.A[0].fim)todosJogos(p).forEach(minuto);if(p.copa)concluirPartidaCopa();else concluirRodada();render();}
-  else p.timer=setInterval(tick,v===1?260:80);
-}
-function pausarPartida(){const p=ui.partida;clearInterval(p.timer);p.pausado=true;render();}
-function retomarPartida(){setVelocidade(ui.partida.vel||1);}
-function pmAtual(){const p=ui.partida,m=meu();return todosJogos(p).find(x=>x.g.casa===m.id||x.g.fora===m.id);}
-function recalcularForcaPartida(){
-  const m=meu(),pm=pmAtual(),mandante=pm.g.casa===m.id;
-  if(mandante)pm.H=forcaTime(m,true);else pm.A=forcaTime(m,false);
-}
-function mudarEstiloPartida(e){meu().estilo=e;recalcularForcaPartida();salvar();render();}
-function clicarPartida(id){
-  const p=ui.partida;if(!p||!p.pausado)return;
-  const m=meu();
-  if(ui.sel===null||ui.sel===id){ui.sel=ui.sel===id?null:id;render();return;}
-  const a=ui.sel,b=id,ia=m.titulares.indexOf(a),ib=m.titulares.indexOf(b);
-  if(ia>=0&&ib>=0){
-    if(J(a).suspenso||J(b).suspenso){alert('Jogador expulso não pode trocar de posição — o time joga com um a menos.');ui.sel=null;render();return;}
-    m.titulares[ia]=b;m.titulares[ib]=a;
-  }else if(ia>=0||ib>=0){
-    const entra=ia>=0?b:a,sai=ia>=0?a:b;
-    if(J(sai).suspenso){alert('Jogador expulso não pode ser substituído — o time joga com um a menos.');ui.sel=null;render();return;}
-    if(J(entra).suspenso||J(entra).lesao||J(entra).selecao){alert('Jogador indisponível.');ui.sel=null;render();return;}
-    if((p.subsUsadas||0)>=5){alert('Limite de 5 substituições atingido.');ui.sel=null;render();return;}
-    if(ia>=0)m.titulares[ia]=b;else m.titulares[ib]=a;
-    p.subsUsadas=(p.subsUsadas||0)+1;
-    noticia('Substituição: '+J(entra).nome+' entra no lugar de '+J(sai).nome+'.');
-    if(p.subForcada===sai)p.subForcada=null;
-  }else{ui.sel=null;render();return;}
-  ui.sel=null;recalcularForcaPartida();salvar();render();
-}
-function escolherBatedor(id){ui.partida.cobranca.batedor=id;render();}
-function cobrar(tipoKey){
-  const c=ui.partida.cobranca,p=c.p;
-  Motor.resolverCobranca(state,c,tipoKey);
-  ui.partida.cobranca=null;
-  render();salvar();
-  if(!p.fim)retomarPartida();
-}
-function painelCobranca(){
-  const c=ui.partida.cobranca,t=state.times[c.timeId];
-  const elegiveis=emCampo(t).sort((a,b)=>b.forca-a.forca);
-  if(c.batedor===null){
-    return `<div class="painel" style="margin:12px 0;border-color:var(--amarelo)"><h3>${c.tipo==='penalti'?'🎯 Pênalti a favor!':'⚡ Falta perigosa!'}</h3>
-    <p class="muted">Escolha quem vai cobrar:</p>
-    <div class="taticas">${elegiveis.map(j=>`<button onclick="escolherBatedor(${j.id})">${esc(j.nome)} <span class="muted">(${j.pos} ${j.forca})</span></button>`).join('')}</div></div>`;
-  }
-  const tipos=c.tipo==='penalti'?TIPOS_PENALTI:TIPOS_FALTA;
-  return `<div class="painel" style="margin:12px 0;border-color:var(--amarelo)"><h3>${esc(J(c.batedor).nome)} vai cobrar. Como?</h3>
-  <div class="taticas">${Object.entries(tipos).map(([k,v])=>`<button onclick="cobrar('${k}')" title="${esc(v.desc)}">${v.nome}</button>`).join('')}</div>
-  <p class="muted" style="margin-top:6px">Passe o mouse nos botões pra ver a descrição de cada cobrança.</p></div>`;
-}
-function liberarSemSubstituir(){ui.partida.subForcada=null;render();}
-function jogadorForcado(){const p=ui.partida,m=meu();return p.subForcada&&m.titulares.includes(p.subForcada)?J(p.subForcada):null;}
-function painelSubstituicao(m){
-  const banco=m.jogadores.map(J).filter(j=>!m.titulares.includes(j.id)&&!j.suspenso&&!j.lesao&&!j.selecao).sort((a,b)=>b.forca-a.forca);
-  const linha=j=>`<tr class="clic ${ui.sel===j.id?'sel':''}" onclick="clicarPartida(${j.id})"><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td></tr>`;
-  const forcado=jogadorForcado();
-  return `<div class="painel" style="margin:12px 0;${forcado?'border-color:var(--vermelho)':''}">
-  ${forcado?`<div class="aviso">🚑 Substituição obrigatória: <b>${esc(forcado.nome)}</b> está lesionado e precisa sair.${banco.length?'':' Não há ninguém disponível no banco — o time vai jogar com um a menos.'}</div>`:''}
-  <h3>Substituições — ${5-(ui.partida.subsUsadas||0)} restantes</h3>
-  <div class="grid g2"><div><p class="muted" style="margin:0 0 4px">Em campo</p><table>${m.titulares.map(id=>linha(J(id))).join('')}</table></div>
-  <div><p class="muted" style="margin:0 0 4px">Banco</p><table>${banco.map(linha).join('')||'<tr><td class="muted">Sem opções no banco.</td></tr>'}</table></div></div>
-  <p class="muted" style="margin-top:6px">Clique num titular e depois num jogador do banco para substituir, ou em dois titulares para trocar posições.</p>
-  ${forcado&&!banco.length?`<button style="margin-top:8px" onclick="liberarSemSubstituir()">Continuar com o time reduzido</button>`:''}
-  </div>`;
-}
-function resolverPedido(aceitar){
-  const ped=state.pedidoPendente;if(!ped)return;
-  const j=J(ped.jogadorId);
-  if(aceitar){j.salario+=ped.aumento;j.moral=clamp(j.moral+20,0,100);noticia('Você aceitou o pedido de aumento de '+j.nome+'.');}
-  else{j.moral=clamp(j.moral-15,0,100);noticia(j.nome+' ficou insatisfeito após a recusa do pedido de aumento.');}
-  state.pedidoPendente=null;salvar();render();
-}
+function resolverPedido(aceitar){acao('resolverPedido',{aceitar});}
 function painelPedido(){
   const ped=state.pedidoPendente;if(!ped)return'';
   const j=J(ped.jogadorId);
@@ -324,16 +192,7 @@ function painelPedido(){
   <tr><td>Novo salário se aceitar</td><td class="r">${fmt(j.salario+ped.aumento)}/rodada</td></tr></table>
   <button class="primario" onclick="resolverPedido(true)">Aceitar</button> <button onclick="resolverPedido(false)">Recusar</button></div>`;
 }
-/* Antes era resolvida com confirm() dentro de ofertaRecebida(); agora é um painel, igual
-   ao pedido de aumento acima — necessário pra concluirRodada() poder rodar sem um humano
-   no teclado (ver motor.js). */
-function resolverOferta(aceitar){
-  const of=state.ofertaPendente;if(!of)return;
-  const j=J(of.jogadorId),comp=state.times[of.compradorId];
-  if(aceitar){transferir(j,meu(),comp,of.oferta);noticia(j.nome+' vendido ao '+comp.nome+' por '+fmt(of.oferta)+' (oferta recebida).');}
-  else noticia(comp.nome+' propôs '+fmt(of.oferta)+' por '+j.nome+', mas você recusou.');
-  state.ofertaPendente=null;salvar();render();
-}
+function resolverOferta(aceitar){acao('resolverOferta',{aceitar});}
 function painelOferta(){
   const of=state.ofertaPendente;if(!of)return'';
   const j=J(of.jogadorId),comp=state.times[of.compradorId];
@@ -345,81 +204,49 @@ function painelOferta(){
   <button class="primario" onclick="resolverOferta(true)">Aceitar</button> <button onclick="resolverOferta(false)">Recusar</button></div>`;
 }
 
-/* ============ SAVE ============ */
-const KEY='craque_manager_save';
-function salvar(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
-function carregar(){try{const s=localStorage.getItem(KEY);if(!s)return null;const st=JSON.parse(s);
-    if(!st.versaoMundo||st.versaoMundo<2)return null;
-    st.times.forEach(t=>{if(!t.treino)t.treino={passe:0,falta:0,penalti:0,fisico:0};
-      if(!t.staff)t.staff={fisico:0,goleiro:0,olheiro:0};
-      if(t.capacidade===undefined)t.capacidade=Math.round(t.torcida*1.15);
-      if(t.patrocinio===undefined)t.patrocinio=0;});
-    if(st.diasParaJogo===undefined)st.diasParaJogo=0;
-    if(st.dia===undefined)st.dia=diaDaRodada(st.rodada-1)||0;
-    if(!st.copa)st.copa={jogos:[],fase:'-',rodadaAlvo:st.rodada+4,campeao:null,historico:[]};
-    if(st.rivalId===undefined){st.rivalId=rivalDe(st.meuTime);st.classico={v:0,e:0,d:0};}
-    if(st.pedidoPendente===undefined)st.pedidoPendente=null;
-    if(st.ofertaPendente===undefined)st.ofertaPendente=null;
-    if(!st.janela)st.janela={aberta:true,dias:10,meioAberta:true};
-    if(!st.continentais){st.continentais={};CONFEDERACOES.forEach(c=>{st.continentais[c]={jogos:[],fase:'-',rodadaAlvo:st.rodada+3,campeao:null,historico:[]};});}
-    if(st.mundial===undefined)st.mundial=null;
-    if(!st.premiosTemporada)st.premiosTemporada=[];
-    Object.values(st.jogadores).forEach(j=>{if(j.assistencias===undefined)j.assistencias=0;});
-    st.times.forEach(t=>{if(t.baseNivel===undefined)t.baseNivel=0;if(!t.prospectos)t.prospectos=[];});
-    Object.values(st.jogadores).forEach(j=>{if(j.emBase===undefined)j.emBase=false;});
-    Object.values(st.jogadores).forEach(j=>{if(j.lesao===undefined){j.lesao=0;j.lesaoTipo='';}
-      if(j.contrato===undefined)j.contrato=rnd(1,4);
-      if(j.selecao===undefined)j.selecao=0;
-      if(j.lesoesTotal===undefined){j.lesoesTotal=0;j.fragil=false;}
-      if(j.potencial===undefined)j.potencial=j.idade<=23?clamp(j.forca+rnd(5,25),40,96):j.forca;});
-    return st;}catch(e){return null;}}
-function temSave(){try{return !!localStorage.getItem(KEY);}catch(e){return false;}}
-function apagarSave(){
-  if(!confirm('Tem certeza que quer apagar o jogo salvo? Essa ação não pode ser desfeita.'))return;
-  try{localStorage.removeItem(KEY);}catch(e){}
-  state=null;ui={tela:'menu',sel:null,filtroPos:'',partida:null,clubeVisto:null};
-  render();
-}
-
 /* ============ RENDER ============ */
 const app=document.getElementById('app');
 function render(){
-  if(ui.tela==='menu'){app.innerHTML=telaMenu();return;}
+  if(!state){app.innerHTML='<main><p class="muted">Conectando ao servidor...</p></main>';return;}
   const m=meu();
+  if(!m){app.innerHTML=telaEntrar();erro=null;return;}
   const telas=[['inicio','Início'],['elenco','Elenco'],['escalacao','Escalação'],['calendario','Treino'],['tabela','Tabela'],['mercado','Mercado'],['financas','Finanças']];
-  const emJogo=ui.tela==='partida';
+  const emAndamento=state.rodadaEstado.status==='em_andamento';
   app.innerHTML=`<header>
     <div class="escudo" style="background:${m.cor1};border-color:${m.cor2}"></div>
-    <div class="info"><h1 style="font-size:24px">${esc(m.nome)}</h1><small>${esc(m.cidade)} · ${CONF_NOME[m.conf]} Série ${m.div} · ${posicao(m.id)}º lugar</small></div>
+    <div class="info"><h1 style="font-size:24px">${esc(m.nome)}</h1><small>${esc(m.cidade)} · ${CONF_NOME[m.conf]} Série ${m.div} · ${posicao(m.id)}º lugar · ${esc(m.controlador.nome)}</small></div>
     <div class="stats">
       <div><span>Temporada</span><b class="num">${state.temporada}</b></div>
       <div><span>Rodada</span><b class="num">${Math.min(state.rodada+1,RODADAS_TEMPORADA)}/${RODADAS_TEMPORADA}</b></div>
       <div><span>Caixa</span><b class="num ${m.caixa<0?'neg':''}">${fmt(m.caixa)}</b></div>
       <div><span>Moral</span><b class="num">${m.moral}</b></div>
     </div>
-    ${emJogo?'':state.fimTemporada?`<button class="primario" onclick="ui.tela='temporada';render()">Encerrar temporada</button>`:
-      state.diasParaJogo>0?`<button class="primario" disabled title="Treine antes da rodada, na aba Treino">${state.diasParaJogo} dia(s) de treino restantes</button>`:
-      `<button class="primario" onclick="iniciarRodada()">Jogar rodada ${state.rodada+1}</button>`}
+    ${state.fimTemporada?`<button class="primario" onclick="ui.tela='temporada';render()">Ver fim de temporada</button>`:emAndamento?'<button class="primario" disabled>🔴 Rodada rolando...</button>':''}
   </header>
-  <nav>${telas.map(([id,n])=>`<button class="${ui.tela===id?'ativo':''}" ${emJogo?'disabled':''} onclick="ui.tela='${id}';ui.sel=null;render()">${n}</button>`).join('')}
-    <button style="margin-left:auto" ${emJogo?'disabled':''} onclick="if(confirm('Voltar ao menu? O jogo está salvo.')){ui.tela='menu';render()}">Menu</button></nav>
-  <main>${({inicio:telaInicio,elenco:telaElenco,escalacao:telaEscalacao,calendario:telaCalendario,tabela:telaTabela,mercado:telaMercado,financas:telaFinancas,partida:telaPartida,temporada:telaTemporada})[ui.tela]()}</main>`;
+  <nav>${telas.map(([id,n])=>`<button class="${ui.tela===id?'ativo':''}" onclick="ui.tela='${id}';ui.sel=null;render()">${n}</button>`).join('')}</nav>
+  <main>${erro?`<div class="aviso">${esc(erro)}</div>`:''}${({inicio:telaInicio,elenco:telaElenco,escalacao:telaEscalacao,calendario:telaCalendario,tabela:telaTabela,mercado:telaMercado,financas:telaFinancas,temporada:telaTemporada})[ui.tela]()}</main>`;
+  erro=null;
 }
-function telaMenu(){
-  const conf=ui.menuConf||'SA',div=ui.menuDiv||'A';
-  const todos=TIMES_BASE.concat(TIMES_MUNDO).map((t,i)=>({...t,i,conf:t.conf||'SA'}));
-  const times=todos.filter(t=>t.conf===conf&&t.div===div);
+function telaEntrar(){
+  const confs=[...new Set(state.times.map(t=>t.conf))];
+  ui.menuConf=ui.menuConf||confs[0];
+  const divs=[...new Set(state.times.filter(t=>t.conf===ui.menuConf).map(t=>t.div))].sort();
+  ui.menuDiv=ui.menuDiv||divs[0];
+  const times=state.times.filter(t=>t.conf===ui.menuConf&&t.div===ui.menuDiv);
+  const apelidoSalvo=localStorage.getItem(KEY_APELIDO)||'';
   return `<div class="menu"><h1>Craque Manager</h1>
-  <p>Escolha um clube, monte a escalação, negocie no mercado e leve o time ao título mundial. 5 confederações, 4 divisões cada, com acesso e rebaixamento, Copa Nacional, Copa Continental e Mundial de Clubes. O progresso fica salvo neste navegador.</p>
-  ${temSave()?`<button class="primario" onclick="const s=carregar();if(s){state=s;ui.tela='inicio';render();}else{alert('Esse save é de uma versão antiga (antes da expansão mundial) e não é compatível. Comece um novo jogo.');apagarSave();}">Continuar jogo salvo</button> <button onclick="apagarSave()">Apagar jogo salvo</button>`:''}
-  <h2 style="margin-top:24px">Começar novo jogo</h2>
+  <p>Temporada ${state.temporada} de um mundo compartilhado, já em andamento — escolha um apelido e reivindique um clube livre pra entrar na sala.</p>
+  ${erro?`<div class="aviso">${esc(erro)}</div>`:''}
+  <p class="muted">Apelido</p>
+  <input id="apelido" value="${esc(apelidoSalvo)}" placeholder="seu nome">
+  <h2 style="margin-top:24px">Escolha um clube livre</h2>
   <p class="muted">Confederação</p>
-  <div class="taticas">${CONFEDERACOES.map(c=>`<button class="${conf===c?'primario':''}" onclick="ui.menuConf='${c}';render()">${CONF_NOME[c]}</button>`).join('')}</div>
+  <div class="taticas">${confs.map(c=>`<button class="${ui.menuConf===c?'primario':''}" onclick="ui.menuConf='${c}';ui.menuDiv=null;render()">${CONF_NOME[c]}</button>`).join('')}</div>
   <p class="muted">Divisão</p>
-  <div class="taticas">${['A','B','C','D'].map(d=>`<button class="${div===d?'primario':''}" onclick="ui.menuDiv='${d}';render()">Série ${d}</button>`).join('')}</div>
+  <div class="taticas">${divs.map(d=>`<button class="${ui.menuDiv===d?'primario':''}" onclick="ui.menuDiv='${d}';render()">Série ${d}</button>`).join('')}</div>
   <div class="times">${times.map(t=>`
-    <div class="tcard" onclick="novoJogo(${t.i});ui.tela='inicio';render()"><div class="escudo" style="background:${t.cor1};border-color:${t.cor2}"></div>
-    <div><b>${esc(t.nome)}</b><small>${esc(t.cidade)} · força ${t.forca}</small></div></div>`).join('')}</div>
+    <div class="tcard ${t.controlador?'ocupado':'livre'}" ${t.controlador?'':`onclick="entrar(${t.id})"`}><div class="escudo" style="background:${t.cor1};border-color:${t.cor2}"></div>
+    <div><b>${esc(t.nome)}</b><small>${esc(t.cidade)} · força ${t.forca} · ${t.controlador?('ocupado por '+esc(t.controlador.nome)):'livre'}</small></div></div>`).join('')}</div>
   </div>`;
 }
 function classeForca(f){return f>=82?'f4':f>=72?'f3':f>=60?'f2':'f1';}
@@ -431,13 +258,18 @@ function telaInicio(){
   const tab=tabela(m.conf,m.div).slice(0,6);
   const fora=m.titulares.filter((id,i)=>J(id).pos!==FORMACOES[m.formacao][i]).length;
   const ehClassicoProx=prox&&state.rivalId!=null&&(prox.casa===state.rivalId||prox.fora===state.rivalId);
+  const emAndamento=state.rodadaEstado.status==='em_andamento';
+  const minhaPartidaAoVivo=emAndamento&&prox?partidasAoVivo.find(p=>p.casaId===prox.casa&&p.foraId===prox.fora):null;
   return `${painelPedido()}${painelOferta()}<div class="grid g3"><div>
-    ${prox?`<div class="painel"><h3>Próximo jogo — rodada ${state.rodada+1}</h3>
+    ${minhaPartidaAoVivo?telaPartidaAoVivo(minhaPartidaAoVivo)
+      :emAndamento?'<div class="painel"><h3>Rodada rolando</h3><p class="aviso">Aguardando as partidas ao vivo da rodada terminarem para fechar o seu resultado...</p></div>'
+      :prox?`<div class="painel"><h3>Próximo jogo — rodada ${state.rodada+1}</h3>
       ${ehClassicoProx?'<div style="text-align:center;color:var(--amarelo);font-family:var(--fd);font-weight:700;font-size:16px;margin-top:6px">🔥 CLÁSSICO</div>':''}
       <div class="placar" style="margin-top:8px"><div class="linha2"><div class="time">${linhaTime(prox.casa)}</div><div class="num" style="font-size:22px">x</div><div class="time d">${linhaTime(prox.fora)}</div></div>
       <div class="muted" style="text-align:center">${prox.casa===m.id?'Em casa':'Fora de casa'} · adversário na ${posicao(prox.casa===m.id?prox.fora:prox.casa)}ª posição</div></div>
       ${fora?`<div class="aviso">${fora} jogador(es) fora de posição na escalação. Ajuste em Escalação.</div>`:''}
-      </div>`:`<div class="ok">Campeonato encerrado. Clique em "Encerrar temporada" para ver o balanço.</div>`}
+      </div>`:`<div class="ok">Campeonato encerrado.</div>`}
+    ${!emAndamento&&!state.fimTemporada?telaLobby(m):''}
     <div class="painel" style="margin-top:18px"><h3>Notícias</h3><div class="noticias">${state.noticias.map(n=>`<div><small>T${n.t} R${n.r}</small>${esc(n.txt)}</div>`).join('')||'<div class="muted">Nada ainda.</div>'}</div></div>
   </div><div>
     <div class="painel"><h3>${CONF_NOME[m.conf]} — Série ${m.div} — topo</h3><table>${tab.map((l,i)=>`<tr class="${l.id===m.id?'eu':''}"><td class="num">${i+1}</td><td>${linhaTime(l.id)}</td><td class="r num">${l.pts}</td></tr>`).join('')}</table>
@@ -446,6 +278,34 @@ function telaInicio(){
     ${state.premiosTemporada.length?`<div class="painel" style="margin-top:18px"><h3>Prêmios da temporada passada</h3>${state.premiosTemporada.map(p=>`<div>🏅 <b>${p.nome}</b> — ${esc(p.jogadorNome)} <span class="muted">(${esc(p.timeNome)})</span></div>`).join('')}</div>`:''}
     ${state.titulos.length?`<div class="painel" style="margin-top:18px"><h3>Títulos</h3>${state.titulos.map(t=>`<div>🏆 ${t}</div>`).join('')}</div>`:''}
   </div></div>`;
+}
+function telaPartidaAoVivo(pm){
+  const H=state.times[pm.casaId],A=state.times[pm.foraId];
+  const stat=(n,a,b)=>{const t=a+b||1;return `<div class="stat"><span class="num r" style="text-align:right">${Math.round(a)}</span><div class="bar"><i style="width:${a/t*100}%"></i><i style="width:${b/t*100}%"></i></div><span class="num">${Math.round(b)}</span><span></span><span class="muted" style="text-align:center">${n}</span></div>`;};
+  return `<div class="placar">
+    <div style="text-align:center;color:var(--vermelho);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🔴 AO VIVO — humano x humano</div>
+    <div class="linha1"><span>${pm.min<=45?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${pm.min/90*100}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${pm.min}'</span></div>
+    <div class="linha2"><div class="time">${linhaTime(H.id)}</div><div class="gols">${pm.gc} x ${pm.gf}</div><div class="time d">${linhaTime(A.id)}</div></div>
+    <div class="grid g2" style="gap:18px"><div>
+      ${stat('posse de bola',pm.posse,100-pm.posse)}${stat('finalizações',pm.fc,pm.ff)}
+      ${stat('cartões',pm.eventos.filter(e=>e.lado==='c'&&e.tipo!=='gol').length,pm.eventos.filter(e=>e.lado==='f'&&e.tipo!=='gol').length)}
+    </div><div class="eventos">${pm.eventos.slice().reverse().map(e=>`<div><b class="num">${e.min}'</b> ${e.tipo==='gol'?'⚽':e.tipo==='vermelho'?'🟥':e.tipo==='amarelo'?'🟨':e.tipo==='lesao'?'🚑':e.tipo==='penalti_perdido'||e.tipo==='falta_perdida'?'❌':''} ${esc(e.txt)}</div>`).join('')||'<div class="muted">Bola rolando...</div>'}</div></div>
+  </div>`;
+}
+function telaLobby(m){
+  const humanos=state.times.filter(t=>t.controlador);
+  const prontos=state.rodadaEstado.prontos;
+  const euEstouPronto=prontos.includes(m.id);
+  const faltam=Math.max(0,state.rodadaEstado.timeoutAt-Date.now());
+  return `<div class="painel" style="margin-top:18px">
+    <h3>Lobby da rodada — ${prontos.length}/${humanos.length} prontos</h3>
+    <div class="times" style="margin-bottom:10px">${humanos.map(t=>`
+      <div class="tcard" style="${prontos.includes(t.id)?'':'opacity:.6'}"><div class="escudo" style="background:${t.cor1};border-color:${t.cor2}"></div>
+      <div><b>${esc(t.nome)}</b><small>${esc(t.controlador.nome)} · ${prontos.includes(t.id)?'✔️ pronto':'aguardando'}</small></div></div>`).join('')}</div>
+    <button class="primario" onclick="ficarPronto(${!euEstouPronto})">${euEstouPronto?'Cancelar pronto':'Ficar pronto'}</button>
+    <button onclick="forcarInicio()">Forçar início agora</button>
+    <p class="muted" style="margin-top:8px">Se ninguém forçar, a rodada roda sozinha em <b id="contagem">${fmtContagem(faltam)}</b> — quem não confirmou entra com a escalação que já estava.</p>
+  </div>`;
 }
 function statusJogador(j){
   if(j.lesao>0)return `<span class="neg" title="${esc(j.lesaoTipo||'lesão')}">🚑 Lesionado (${j.lesao}d)</span>`;
@@ -458,11 +318,10 @@ function linhaJogador(j,extra=''){
   return `<tr>${extra}<td>${esc(j.nome)}${estrelaTag(j.forca)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${pot}</td><td class="r num">${j.moral}</td><td class="r num">${j.gols}</td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(j.valor)}</td><td>${statusJogador(j)}</td><td>${j.contrato}a ${j.contrato<=2?`<button onclick="renovar(${j.id})">Renovar</button>`:''}</td></tr>`;
 }
 function renovar(id){
-  const j=J(id),m=meu(),custo=Math.round(j.valor*.15/1e4)*1e4,anos=rnd(2,4);
+  const j=J(id),m=meu(),custo=Math.round(j.valor*.15/1e4)*1e4;
   if(m.caixa<custo){alert('Caixa insuficiente para renovar.');return;}
-  if(!confirm('Renovar '+j.nome+' por '+anos+' anos, custo '+fmt(custo)+' e salário +10%?'))return;
-  m.caixa-=custo;j.contrato+=anos;j.salario=Math.round(j.salario*1.1/1000)*1000;j.moral=clamp(j.moral+10,0,100);
-  noticia('Contrato de '+j.nome+' renovado por '+anos+' anos.');salvar();render();
+  if(!confirm('Renovar '+j.nome+' por 2 a 4 anos, custo '+fmt(custo)+' e salário +10%?'))return;
+  acao('renovar',{jogadorId:id});
 }
 function telaElenco(){
   const m=meu();const js=m.jogadores.map(J).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.forca-a.forca);
@@ -482,8 +341,8 @@ function telaEscalacao(){
   const ft=forcaTime(m,true);
   return `<div class="taticas">
     <label>Formação <select onchange="mudarFormacao(this.value)">${Object.keys(FORMACOES).map(f=>`<option ${f===m.formacao?'selected':''}>${f}</option>`).join('')}</select></label>
-    <label>Estilo <select onchange="meu().estilo=this.value;salvar();render()">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label>
-    <button onclick="autoEscalar(meu());ui.sel=null;salvar();render()">Escalar automaticamente</button>
+    <label>Estilo <select onchange="acao('mudarEstilo',{estilo:this.value})">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label>
+    <button onclick="ui.sel=null;acao('autoEscalar')">Escalar automaticamente</button>
     <span class="muted">Ataque <b class="num">${ft.ata.toFixed(0)}</b> · Defesa <b class="num">${ft.def.toFixed(0)}</b></span>
   </div>
   <div class="campo-wrap"><div>
@@ -496,27 +355,21 @@ function telaEscalacao(){
   <div class="painel banco"><h3>Banco</h3><table><tr><th>Nome</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Moral</th></tr>
   ${banco.map(j=>`<tr class="clic ${ui.sel===j.id?'sel':''}" onclick="clicar(${j.id})"><td>${esc(j.nome)}${j.suspenso?' <span class="neg" title="Suspenso ('+j.suspenso+'j)">⛔</span>':''}${j.lesao?' <span class="neg" title="'+esc(j.lesaoTipo||'Lesão')+' ('+j.lesao+'d)">🚑</span>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r num">${j.moral}</td></tr>`).join('')}</table></div></div>`;
 }
-function mudarFormacao(f){const m=meu();m.formacao=f;autoEscalar(m);salvar();render();}
+function mudarFormacao(f){acao('mudarFormacao',{formacao:f});}
 function clicar(id){
-  const m=meu();
   if(ui.sel===null||ui.sel===id){ui.sel=ui.sel===id?null:id;render();return;}
-  const a=ui.sel,b=id,ia=m.titulares.indexOf(a),ib=m.titulares.indexOf(b);
-  if(ia>=0&&ib>=0){m.titulares[ia]=b;m.titulares[ib]=a;}
-  else if(ia>=0){if(J(b).suspenso||J(b).lesao||J(b).selecao){alert('Jogador suspenso, lesionado ou convocado não pode entrar.');ui.sel=null;render();return;}m.titulares[ia]=b;}
-  else if(ib>=0){if(J(a).suspenso||J(a).lesao||J(a).selecao){alert('Jogador suspenso, lesionado ou convocado não pode entrar.');ui.sel=null;render();return;}m.titulares[ib]=a;}
-  ui.sel=null;salvar();render();
+  const a=ui.sel,b=id;
+  ui.sel=null;
+  acao('escalarTrocar',{a,b});
 }
 function treinar(tipo){
-  if(state.diasParaJogo<=0||state.fimTemporada)return;
-  Motor.treinar(state,meu().id,tipo);
-  state.diasParaJogo--;state.dia++;
-  if(state.janela.aberta){state.janela.dias--;if(state.janela.dias<=0)state.janela.aberta=false;}
-  salvar();render();
+  if(state.fimTemporada)return;
+  acao('treinar',{tipo});
 }
 function barraTreino(n,v){
   return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span class="muted" style="width:60px;font-size:12px">${n}</span><div class="bar" style="flex:1"><i style="width:${v/40*100}%;background:var(--azul)"></i></div><span class="num" style="width:22px;text-align:right;font-size:12px">${v}</span></div>`;
 }
-function telaTorneio(torneio,titulo,onClick){
+function telaTorneio(torneio,titulo){
   const m=meu();
   let status;
   if(torneio.campeao!==null&&torneio.campeao!==undefined){
@@ -527,7 +380,7 @@ function telaTorneio(torneio,titulo,onClick){
     const dentro=torneio.jogos.some(g=>g.a===m.id||g.b===m.id);
     const pronto=state.rodada>=torneio.rodadaAlvo;
     status=(dentro?'':'<p class="muted">Sua equipe não está mais na disputa, mas o chaveamento continua sem você.</p>')+
-      (pronto?`<button class="primario" onclick="${onClick}">${dentro?'Jogar':'Simular'} ${torneio.fase}</button>`:`<p class="muted">Faltam ${torneio.rodadaAlvo-state.rodada} rodada(s) até a próxima fase (${torneio.fase}).</p>`);
+      (pronto?`<p class="muted">Fase decidida automaticamente assim que a rodada rolar.</p>`:`<p class="muted">Faltam ${torneio.rodadaAlvo-state.rodada} rodada(s) até a próxima fase (${torneio.fase}).</p>`);
   }
   const jogosHtml=torneio.jogos.length?`<table><tr><th>Mandante</th><th>Visitante</th></tr>${torneio.jogos.map(g=>`<tr class="${g.a===m.id||g.b===m.id?'eu':''}"><td>${linhaTime(g.a)}</td><td>${linhaTime(g.b)}</td></tr>`).join('')}</table>`:'';
   return `<div class="painel"><h2>${titulo} — ${torneio.campeao!==null&&torneio.campeao!==undefined?'Encerrada':torneio.fase}</h2>${status}${jogosHtml}</div>`;
@@ -543,32 +396,15 @@ function painelMundial(){
   }else corpo=`<p class="muted">Aguardando os campeões continentais (${feitos}/5 definidos) para disputar o Mundial de Clubes.</p>`;
   return `<div class="painel"><h2>🌍 Mundial de Clubes</h2>${corpo}</div>`;
 }
-function faixaDias(){
-  const total=DIAS_ENTRE_RODADAS,restantes=state.diasParaJogo,feitos=clamp(total-restantes,0,total);
-  const caixas=[];
-  for(let i=1;i<=total;i++){
-    const done=i<=feitos,hoje=!done&&i===feitos+1;
-    caixas.push(`<div style="flex:1;text-align:center;padding:10px 4px;border-radius:4px;background:${done?'rgba(126,224,129,.15)':'var(--board)'};border:1px solid ${hoje?'var(--amarelo)':'var(--linha)'}">
-      <div style="font-size:18px">${done?'✔️':hoje?'📋':'·'}</div>
-      <div class="muted" style="font-size:10px">Treino ${i}</div></div>`);
-  }
-  caixas.push(`<div style="flex:1;text-align:center;padding:10px 4px;border-radius:4px;background:${restantes<=0?'rgba(245,197,24,.25)':'var(--board)'};border:1px solid var(--amarelo)">
-    <div style="font-size:18px">⚽</div><div class="muted" style="font-size:10px">Jogo</div></div>`);
-  return `<div style="display:flex;gap:4px;margin:10px 0">${caixas.join('')}</div>`;
-}
 function telaCalendario(){
   const m=meu();
   const jogos=state.calendario[m.conf][m.div].map((r,i)=>({r:i,dia:diaDaRodada(i),g:r.find(g=>g.casa===m.id||g.fora===m.id)})).filter(x=>x.g);
-  const pronto=state.diasParaJogo<=0;
   const dm=m.jogadores.map(J).filter(j=>j.lesao>0||j.suspenso>0);
   return `<div class="grid g2">
-  <div class="painel"><h2>Treino da semana</h2>
-  <p class="muted">Dia <b class="num">${state.dia}</b> da temporada.</p>
-  ${state.fimTemporada?'<p class="muted">Temporada encerrada.</p>':pronto?
-    `<div class="ok">Elenco pronto! Clique em "Jogar rodada" no topo para entrar em campo.</div>`:
-    `<p class="muted">Faltam <b class="num">${state.diasParaJogo}</b> dia(s) para a rodada ${state.rodada+1} (dia ${diaDaRodada(state.rodada)}). Escolha o treino de hoje:</p>
+  <div class="painel"><h2>Treino</h2>
+  ${state.fimTemporada?'<p class="muted">Temporada encerrada.</p>':
+    `<p class="muted">Treine à vontade antes de ficar pronto pra rodada (painel no Início) — não tem limite de treinos por rodada neste cliente.</p>
     <div class="taticas">${Object.keys(TREINOS).map(k=>`<button onclick="treinar('${k}')">${TREINOS[k]}</button>`).join('')}<button onclick="treinar('folga')">Folga</button></div>`}
-  ${state.fimTemporada?'':faixaDias()}
   <div style="margin-top:14px">${Object.keys(TREINOS).map(k=>barraTreino(TREINOS[k],m.treino[k]||0)).join('')}</div>
   <p class="muted" style="margin-top:10px">Passes e Físico reforçam o ataque/defesa da equipe em jogo. Faltas e Pênaltis aumentam a chance de gols de bola parada. Treinar tem um pequeno risco de lesão; Folga recupera moral e acelera a recuperação de lesões, sem risco.</p>
   </div>
@@ -576,8 +412,8 @@ function telaCalendario(){
   <table><tr><th>Nome</th><th>Pos</th><th>Situação</th></tr>
   ${dm.map(j=>`<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td>${statusJogador(j)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">Ninguém lesionado ou suspenso.</td></tr>'}</table>
   </div>
-  ${telaTorneio(state.copa,'Copa Nacional — '+CONF_NOME[m.conf],'jogarRodadaCopa()')}
-  ${telaTorneio(state.continentais[m.conf],'Copa Continental — '+CONF_NOME[m.conf],'jogarTorneioContinental()')}
+  ${telaTorneio(state.copa,'Copa Nacional — '+CONF_NOME[m.conf])}
+  ${telaTorneio(state.continentais[m.conf],'Copa Continental — '+CONF_NOME[m.conf])}
   ${painelMundial()}
   <div class="painel" style="grid-column:1/-1"><h2>Calendário — Série ${m.div} (${CONF_NOME[m.conf]})</h2>
   <table><tr><th class="r">Dia</th><th class="r">Rod.</th><th>Mando</th><th>Adversário</th><th class="r">Resultado</th></tr>
@@ -610,7 +446,7 @@ function telaMercado(){
   }).sort((a,b)=>b.forca-a.forca).slice(0,60);
   const meus=m.jogadores.map(J).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.valor-a.valor);
   const outros=state.times.filter(t=>t.id!==m.id).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
-  return `${painelVenda()}${state.janela.aberta?`<div class="ok">Janela de transferências aberta — ${state.janela.dias} dia(s) restante(s).</div>`:`<div class="aviso">Janela de transferências fechada. Volte no meio ou no fim da temporada.</div>`}
+  return `<div class="aviso">Mercado sincronizado ainda não chegou neste cliente — dá pra ver preços e elencos, mas comprar/vender fica pra uma próxima atualização.</div>
   <div class="painel"><h2>Espionar clube</h2>
   <label>Clube <select onchange="ui.clubeVisto=this.value?Number(this.value):null;render()">
     <option value="">Selecione...</option>
@@ -629,81 +465,29 @@ function telaMercado(){
   </div>
   <p class="muted">Preço fixo = valor de mercado + 15%. Elenco máximo: 25 jogadores. Mostrando até 60 resultados, ordenados por força.</p>
   <table><tr><th>Nome</th><th>Time</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Preço</th><th></th></tr>
-  ${lista.map(j=>{const preco=Math.round(j.valor*1.15/1e4)*1e4;const ok=state.janela.aberta&&m.caixa>=preco&&m.jogadores.length<25&&state.times[j.time].jogadores.length>11;
-    return `<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}</td><td class="muted">${esc(state.times[j.time].nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(preco)}</td><td><button ${ok?'':'disabled'} onclick="comprar(${j.id},${preco})">Comprar</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">Nenhum jogador encontrado com esses filtros.</td></tr>'}</table></div>
-  <div class="painel"><h2>Vender</h2><p class="muted">Você recebe 85% do valor. Elenco mínimo: 16 jogadores. Titulares precisam sair do time antes. Outros clubes também podem te procurar espontaneamente com propostas pelos seus jogadores.</p>
+  ${lista.map(j=>{const preco=Math.round(j.valor*1.15/1e4)*1e4;
+    return `<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}</td><td class="muted">${esc(state.times[j.time].nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(preco)}</td><td><button disabled title="Em breve">Comprar</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">Nenhum jogador encontrado com esses filtros.</td></tr>'}</table></div>
+  <div class="painel"><h2>Vender</h2><p class="muted">Você recebe 85% do valor. Mercado ainda não está sincronizado neste cliente.</p>
   <table><tr><th>Nome</th><th>Pos</th><th class="r">Força</th><th class="r">Salário</th><th class="r">Recebe</th><th></th></tr>
-  ${meus.map(j=>{const preco=Math.round(j.valor*.85/1e4)*1e4;const ok=state.janela.aberta&&!m.titulares.includes(j.id)&&m.jogadores.length>16;
-    return `<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(preco)}</td><td><button ${ok?'':'disabled'} onclick="vender(${j.id},${preco})">Vender</button></td></tr>`;}).join('')}</table></div></div>`;
+  ${meus.map(j=>{const preco=Math.round(j.valor*.85/1e4)*1e4;
+    return `<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(preco)}</td><td><button disabled title="Em breve">Vender</button></td></tr>`;}).join('')}</table></div></div>`;
 }
 function telaClube(id){
   const t=state.times[id],js=t.jogadores.map(J).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.forca-a.forca);
   return `<div class="painel" style="margin-top:14px"><h3>${esc(t.nome)} <span class="muted" style="font-size:13px">— ${esc(t.cidade)} · Série ${t.div} · ${posicao(t.id)}º lugar · caixa ${fmt(t.caixa)}</span></h3>
   <table><tr><th>Nome</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Valor</th><th></th></tr>
-  ${js.map(j=>`<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}${t.titulares.includes(j.id)?' <b style="color:var(--amarelo)">T</b>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.valor)}</td><td><button ${state.janela.aberta&&t.jogadores.length>11?'':'disabled'} onclick="proporOferta(${j.id})">Propor oferta</button></td></tr>`).join('')}</table></div>`;
-}
-function proporOferta(id){
-  if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}
-  const j=J(id),de=state.times[j.time],m=meu();
-  if(de.id===m.id){alert('Esse jogador já é seu.');return;}
-  if(m.jogadores.length>=25){alert('Elenco no limite de 25 jogadores.');return;}
-  if(de.jogadores.length<=11){alert(de.nome+' não pode vender: ficaria sem jogadores suficientes para escalar um time.');return;}
-  const sugestao=Math.round(j.valor*1.1/1e4)*1e4;
-  const entrada=prompt('Proposta por '+j.nome+' ('+de.nome+'). Valor de mercado: '+fmt(j.valor)+'. Quanto quer oferecer?',sugestao);
-  if(entrada===null)return;
-  const oferta=Math.round(Number(String(entrada).replace(/[^\d]/g,''))/1e4)*1e4;
-  if(!oferta||oferta<=0){alert('Valor inválido.');return;}
-  if(m.caixa<oferta){alert('Caixa insuficiente para essa proposta.');return;}
-  let minimo=j.valor;
-  if(de.titulares.includes(j.id))minimo*=1.4;
-  if(de.jogadores.length<=17)minimo*=1.25;
-  if(de.caixa<0)minimo*=.85;
-  if(oferta>=minimo){
-    transferir(j,de,m,oferta);j.moral=80;noticia('Proposta aceita! '+j.nome+' contratado do '+de.nome+' por '+fmt(oferta)+'.');salvar();render();
-  }else alert(de.nome+' recusou a proposta. Eles pedem pelo menos '+fmt(Math.round(minimo/1e4)*1e4)+'.');
-}
-function comprar(id,preco){
-  if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}
-  const j=J(id),de=state.times[j.time],m=meu();
-  if(!confirm('Contratar '+j.nome+' por '+fmt(preco)+'?'))return;
-  transferir(j,de,m,preco);j.moral=80;noticia('Contratado: '+j.nome+' ('+j.pos+', força '+j.forca+') por '+fmt(preco)+'.');salvar();render();}
-function vender(id,preco){
-  if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}
-  ui.vendaPendente={id,preco};render();
-}
-function confirmarVenda(){
-  const v=ui.vendaPendente;if(!v)return;
-  const j=J(v.id),m=meu();
-  const para=pick(state.times.filter(t=>t.id!==m.id&&t.jogadores.length<25))||state.times.find(t=>t.id!==m.id);
-  transferir(j,m,para,v.preco);noticia(j.nome+' vendido ao '+para.nome+' por '+fmt(v.preco)+'.');
-  ui.vendaPendente=null;salvar();render();
-}
-function cancelarVenda(){ui.vendaPendente=null;render();}
-function painelVenda(){
-  const v=ui.vendaPendente;if(!v)return'';
-  const j=J(v.id);
-  return `<div class="painel" style="border-color:var(--vermelho);margin-bottom:14px"><h3>Confirmar venda</h3>
-  <p>Vender <b>${esc(j.nome)}</b>${estrelaTag(j.forca)}?</p>
-  <table style="margin:8px 0"><tr><td>Posição</td><td class="r"><span class="tag ${j.pos}">${j.pos}</span></td></tr>
-  <tr><td>Idade</td><td class="r num">${j.idade}</td></tr>
-  <tr><td>Força</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td></tr>
-  <tr><td>Moral</td><td class="r num">${j.moral}</td></tr>
-  <tr><td>Salário atual</td><td class="r">${fmt(j.salario)}/rodada</td></tr>
-  <tr><td>Valor de mercado</td><td class="r">${fmt(j.valor)}</td></tr>
-  <tr><td>Você recebe</td><td class="r pos" style="font-size:16px">${fmt(v.preco)}</td></tr></table>
-  <button class="primario" onclick="confirmarVenda()">Confirmar venda</button> <button onclick="cancelarVenda()">Cancelar</button></div>`;
+  ${js.map(j=>`<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}${t.titulares.includes(j.id)?' <b style="color:var(--amarelo)">T</b>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.valor)}</td><td><button disabled title="Em breve">Propor oferta</button></td></tr>`).join('')}</table></div>`;
 }
 function reformarEstadio(){
   const m=meu(),inc=Math.round(m.capacidade*.12/500)*500,custo=inc*900;
   if(m.caixa<custo){alert('Caixa insuficiente para a reforma.');return;}
   if(!confirm('Reformar o estádio: +'+inc.toLocaleString('pt-BR')+' lugares por '+fmt(custo)+'?'))return;
-  m.caixa-=custo;m.capacidade+=inc;noticia('Estádio reformado: capacidade agora é '+m.capacidade.toLocaleString('pt-BR')+' lugares.');
-  salvar();render();
+  acao('reformarEstadio');
 }
 function buscarPatrocinio(){
   const m=meu(),oferta=Math.round((m.torcida*.6+rnd(5000,20000))/1000)*1000;
   if(!confirm('Novo patrocinador oferece '+fmt(oferta)+' por rodada (substitui o atual, '+fmt(m.patrocinio)+'). Aceitar?'))return;
-  m.patrocinio=oferta;noticia('Novo patrocínio fechado: '+fmt(oferta)+' por rodada.');salvar();render();
+  acao('buscarPatrocinio',{oferta});
 }
 function investirBase(){
   const m=meu();
@@ -711,8 +495,7 @@ function investirBase(){
   const custo=(m.baseNivel+1)*1.2e6;
   if(m.caixa<custo){alert('Caixa insuficiente.');return;}
   if(!confirm('Investir na categoria de base, nível '+(m.baseNivel+1)+', por '+fmt(custo)+'?'))return;
-  m.caixa-=custo;m.baseNivel++;noticia('Categoria de base reforçada: agora nível '+m.baseNivel+'.');
-  salvar();render();
+  acao('investirBase');
 }
 function contratarStaff(area){
   const m=meu(),nivel=m.staff[area];
@@ -720,8 +503,7 @@ function contratarStaff(area){
   const custo=(nivel+1)*1.5e6;
   if(m.caixa<custo){alert('Caixa insuficiente.');return;}
   if(!confirm('Contratar '+STAFF_NOMES[area]+' nível '+(nivel+1)+' por '+fmt(custo)+'?'))return;
-  m.caixa-=custo;m.staff[area]++;noticia('Comissão técnica reforçada: '+STAFF_NOMES[area]+' agora nível '+m.staff[area]+'.');
-  salvar();render();
+  acao('contratarStaff',{area});
 }
 function telaFinancas(){
   const m=meu(),f=state.financas.filter(x=>x.t===state.temporada).slice().reverse();
@@ -751,34 +533,6 @@ function telaFinancas(){
   ${m.baseNivel<3?`<button onclick="investirBase()">Investir nível ${m.baseNivel+1} (${fmt((m.baseNivel+1)*1.2e6)})</button>`:'<span class="pos">Nível máximo</span>'}
   </div></div>`;
 }
-function telaPartida(){
-  const p=ui.partida,m=meu();
-  const pm=todosJogos(p).find(x=>x.g.casa===m.id||x.g.fora===m.id);
-  const H=state.times[pm.g.casa],A=state.times[pm.g.fora],fim=p.jogos.A[0].fim;
-  const stat=(n,a,b)=>{const t=a+b||1;return `<div class="stat"><span class="num r" style="text-align:right">${Math.round(a)}</span><div class="bar"><i style="width:${a/t*100}%"></i><i style="width:${b/t*100}%"></i></div><span class="num">${Math.round(b)}</span><span></span><span class="muted" style="text-align:center">${n}</span></div>`;};
-  const lista=d=>`<div class="painel"><h3>Série ${d} — rodada ${state.rodada+1}</h3><table class="jogos">${p.jogos[d].map(x=>`<tr class="${x===pm?'eu':''}"><td class="r">${linhaTime(x.g.casa)}</td><td class="plc">${x.gc} x ${x.gf}</td><td>${linhaTime(x.g.fora)}</td><td class="muted" style="font-size:11px">${x.eventos.filter(e=>e.tipo==='gol').map(e=>e.min+"'").join(' ')}</td></tr>`).join('')}</table></div>`;
-  const ehClassico=state.rivalId!=null&&(pm.g.casa===state.rivalId||pm.g.fora===state.rivalId);
-  const intervalo=!fim&&p.jogos.A[0].min===45&&p.intervaloFeito;
-  const forcado=jogadorForcado();
-  const telaAoFim=p.copa?'calendario':(state.fimTemporada?'temporada':'inicio');
-  return `<div class="placar">
-    ${p.copa?`<div style="text-align:center;color:var(--amarelo);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🏆 ${esc(p.copa.tituloNome)} — ${esc(p.copa.torneio.fase)}</div>`:''}
-    ${ehClassico?'<div style="text-align:center;color:var(--amarelo);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🔥 CLÁSSICO</div>':''}
-    ${intervalo?'<div class="ok" style="text-align:center;font-family:var(--fd);font-weight:700;font-size:16px">⏱ INTERVALO — aproveite pra mexer no time</div>':''}
-    <div class="linha1"><span>${pm.min<=45?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${pm.min/90*100}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${pm.min}'</span></div>
-    <div class="linha2"><div class="time">${linhaTime(H.id)}</div><div class="gols">${pm.gc} x ${pm.gf}</div><div class="time d">${linhaTime(A.id)}</div></div>
-    ${fim?'':`<div class="taticas" style="margin:0 0 10px"><label>Instrução tática <select onchange="mudarEstiloPartida(this.value)">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label></div>`}
-    <div class="grid g2" style="gap:18px"><div>
-      ${stat('posse de bola',pm.posse,100-pm.posse)}${stat('finalizações',pm.fc,pm.ff)}
-      ${stat('cartões',pm.eventos.filter(e=>e.lado==='c'&&e.tipo!=='gol').length,pm.eventos.filter(e=>e.lado==='f'&&e.tipo!=='gol').length)}
-    </div><div class="eventos">${pm.eventos.slice().reverse().map(e=>`<div><b class="num">${e.min}'</b> ${e.tipo==='gol'?'⚽':e.tipo==='vermelho'?'🟥':e.tipo==='amarelo'?'🟨':e.tipo==='lesao'?'🚑':e.tipo==='penalti_perdido'||e.tipo==='falta_perdida'?'❌':''} ${esc(e.txt)}</div>`).join('')||'<div class="muted">Bola rolando...</div>'}</div></div>
-  </div>
-  <div class="controles">${fim?`<button class="primario" onclick="ui.partida=null;ui.tela='${telaAoFim}';render()">Continuar</button>`:
-    p.cobranca?'':forcado?`<button disabled title="Faça a substituição obrigatória primeiro">🚑 Substituição obrigatória</button>`:`<button ${p.vel===1&&!p.pausado?'disabled':''} onclick="setVelocidade(1)">Normal</button><button ${p.vel===2&&!p.pausado?'disabled':''} onclick="setVelocidade(2)">Rápido</button><button onclick="setVelocidade(0)">Pular para o fim</button><button onclick="${p.pausado?'retomarPartida()':'pausarPartida()'}">${p.pausado?(intervalo?'▶ Iniciar 2º tempo':'▶ Continuar'):'⏸ Pausar e substituir'}</button>`}</div>
-  ${!fim&&p.cobranca?painelCobranca():''}
-  ${!fim&&p.pausado&&!p.cobranca?painelSubstituicao(m):''}
-  ${p.copa?'':`<div class="grid g2">${lista('A')}${lista('B')}${lista('C')}${lista('D')}</div>`}`;
-}
 function telaTemporada(){
   const r=resumoTemporada(),m=meu();
   return `<div class="painel" style="max-width:700px;margin:0 auto"><h1 style="color:var(--amarelo)">Fim da temporada ${state.temporada}</h1>
@@ -787,29 +541,23 @@ function telaTemporada(){
   ${['A','B','C','D'].map(d=>`<tr><td>Campeão da Série ${d}</td><td>🏆 ${linhaTime(r.campeoes[d])}</td></tr>`).join('')}
   <tr><td>Artilheiro</td><td>${esc(r.artilheiro.nome)} (${esc(state.times[r.artilheiro.time].nome)}) — ${r.artilheiro.gols} gols</td></tr>
   <tr><td>Seu time</td><td>${posicao(m.id)}º lugar na Série ${m.div}</td></tr></table>
-  ${Object.values(r.campeoes).includes(m.id)?'<div class="ok">Título conquistado! Prêmio em dinheiro creditado na próxima temporada.</div>':''}
+  ${Object.values(r.campeoes).includes(m.id)?'<div class="ok">Título conquistado!</div>':''}
   ${r.transicoes.some(tr=>tr.caem.includes(m.id))?'<div class="aviso">Seu time foi rebaixado.</div>':''}
   ${r.transicoes.some(tr=>tr.sobem.includes(m.id))?'<div class="ok">Acesso garantido pra divisão de cima!</div>':''}
-  <p class="muted">Na virada, os jogadores envelhecem: jovens evoluem, veteranos caem e quem passa dos 36 se aposenta.</p>
-  <button class="primario" onclick="novaTemporada()">Continuar no ${esc(m.nome)} — iniciar temporada ${state.temporada+1}</button>
-  <h3 style="margin-top:20px">Ou assuma outro clube</h3>
-  <p class="muted">Ofertas de trabalho para a próxima temporada, de qualquer confederação. Seus títulos e sua carreira seguem com você; o elenco e a estrutura ficam com o ${esc(m.nome)}.</p>
-  <div class="taticas">${ofertasClube().map(t=>`<button onclick="trocarClube(${t.id})">${esc(t.nome)} <span class="muted">(${CONF_NOME[t.conf]} · Série ${t.div}, força ${t.forca})</span></button>`).join('')}</div>
+  <div class="aviso" style="margin-top:14px">A virada de temporada com vários jogadores humanos ainda não está pronta neste cliente — cada perspectiva vê acesso/rebaixamento diferente, e isso precisa de um desenho próprio antes de ligar o botão de continuar.</div>
   </div>`;
 }
-function ofertasClube(){
-  const m=meu();
-  return state.times.filter(t=>t.id!==m.id).slice().sort(()=>Math.random()-.5).slice(0,3);
-}
-function trocarClube(novoId){
-  const antigo=meu().nome,novo=state.times[novoId].nome;
-  if(!confirm('Deixar o '+antigo+' e assumir o '+novo+' para a próxima temporada?'))return;
-  novaTemporada();
-  state.meuTime=novoId;state.rivalId=rivalDe(novoId);state.classico={v:0,e:0,d:0};
-  gerarCopa();
-  noticia('Você deixou o '+antigo+' e assumiu o comando do '+novo+'!');
-  salvar();render();
-}
+
+/* ============ MULTIPLAYER: conexão ============ */
+const socket=io();
+socket.on('mundo',m=>{state=m;if(state.rodadaEstado.status==='lobby')partidasAoVivo=[];render();});
+socket.on('partidasAoVivo',lista=>{partidasAoVivo=lista;render();});
+socket.on('erro',msg=>{erro=msg;render();});
+socket.on('connect_error',()=>{document.getElementById('app').innerHTML='<main><p>Não consegui conectar ao servidor.</p></main>';});
+setInterval(()=>{
+  const el=document.getElementById('contagem');
+  if(el&&state&&!state.fimTemporada)el.textContent=fmtContagem(state.rodadaEstado.timeoutAt-Date.now());
+},1000);
 render();
 </script>
 </body>

@@ -479,6 +479,28 @@ function negocioIA(state){
   if(!j||comp.jogadores.length>=25||comp.caixa<j.valor)return;
   transferir(state,j,vend,comp,j.valor);noticia(state,comp.nome+' contrata '+j.nome+' junto ao '+vend.nome+' por '+fmt(j.valor)+'.');
 }
+/* Efeitos de treinar num clube específico (moral, estatística de treino, risco de
+   lesão). Não mexe no relógio do mundo (diasParaJogo/dia/janela) — no solo isso é um
+   contador global de "dias até a rodada", que quem chama decide como avançar; no
+   multiplayer, cada clube treina no seu próprio ritmo dentro do lobby, sem um
+   contador compartilhado que uma ação de um jogador atrasaria pra todo mundo. */
+function treinar(state,clubeId,tipo){
+  const m=state.times[clubeId];
+  if(tipo==='folga'){
+    m.jogadores.map(id=>J(state,id)).forEach(j=>{j.moral=clamp(j.moral+rnd(1,3),0,100);if(j.lesao>0)j.lesao=Math.max(0,j.lesao-2);});
+    m.moral=clamp(m.moral+1,0,100);
+    noticia(state,'Dia de folga: o elenco descansou e recuperou moral.');
+  }else{
+    m.jogadores.map(id=>J(state,id)).forEach(j=>{if(j.lesao>0)j.lesao=Math.max(0,j.lesao-1);});
+    m.treino[tipo]=clamp((m.treino[tipo]||0)+8,0,40);
+    if(Math.random()<.03*(1-m.staff.fisico*.2)){const cands=m.jogadores.map(id=>J(state,id)).filter(j=>!j.lesao);
+      if(cands.length){const j=pick(cands);const dur=rnd(3,10);j.lesao=dur;j.lesaoTipo=pick(['muscular','torção no tornozelo','pancada no joelho','desgaste físico']);
+        j.lesoesTotal=(j.lesoesTotal||0)+1;if(j.lesoesTotal>=3&&!j.fragil){j.fragil=true;j.valor=Math.round(j.valor*.85/1e4)*1e4;}
+        if(m.titulares.includes(j.id))autoEscalar(state,m);
+        noticia(state,j.nome+' sofreu uma lesão '+j.lesaoTipo+' no treino de '+TREINOS[tipo].toLowerCase()+' ('+dur+' dias).');}}
+    noticia(state,'Treino de '+TREINOS[tipo].toLowerCase()+' realizado.');
+  }
+}
 function eventoVestiario(state){
   if(state.pedidoPendente)return;
   const m=meu(state),cands=m.titulares.map(id=>J(state,id)).filter(j=>j.moral<70);
@@ -581,7 +603,7 @@ return {
   // tabela/temporada
   tabela,posicao,resumoTemporada,premiosMundiais,novaTemporada,
   // economia/mercado
-  transferir,negocioIA,eventoVestiario,convocarSelecao,ofertaRecebida,
+  transferir,negocioIA,eventoVestiario,convocarSelecao,ofertaRecebida,treinar,
   // fim de rodada
   concluirRodada,
 };

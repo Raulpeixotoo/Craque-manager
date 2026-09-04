@@ -102,7 +102,7 @@ let tickHandle = null;
 let naoProntosDaRodada = [];
 
 function resumoPartida(p) {
-  return { casaId: p.g.casa, foraId: p.g.fora, min: p.min, gc: p.gc, gf: p.gf, eventos: p.eventos, fim: p.fim };
+  return { casaId: p.g.casa, foraId: p.g.fora, min: p.min, gc: p.gc, gf: p.gf, fc: p.fc, ff: p.ff, posse: p.posse, eventos: p.eventos, fim: p.fim };
 }
 
 // Acha os confrontos da rodada onde os dois lados são controlados por humanos e cria
@@ -175,11 +175,29 @@ function noticiarPartidasDosHumanos(rodadaJogada) {
   });
 }
 
+// Motor.concluirRodada() já avança os continentais de toda confederação DIFERENTE da
+// de "meuTime" (a dele fica pro botão de "jogar copa ao vivo" do solo, que este cliente
+// não tem) e dispara o Mundial quando todos tiverem campeão. Só faltam dois casos:
+// o continental da PRÓPRIA confederação de referência, e a Copa Nacional (bracket único,
+// nunca tocado por concluirRodada). Resolvendo esses dois aqui, antes, o check de
+// "todo mundo já tem campeão continental" do próprio concluirRodada já enxerga certo.
+function avancarCompeticoesEliminatorias() {
+  const contRef = mundo.continentais[mundo.times[mundo.meuTime].conf];
+  if (contRef && contRef.campeao == null && contRef.jogos.length && mundo.rodada >= contRef.rodadaAlvo) {
+    Motor.jogarFaseMataMata(mundo, contRef);
+  }
+  const copa = mundo.copa;
+  if (copa && copa.campeao == null && copa.jogos.length && mundo.rodada >= copa.rodadaAlvo) {
+    Motor.jogarFaseMataMata(mundo, copa);
+  }
+}
+
 // Chamada depois que toda partida ao vivo (se houve alguma) já terminou — resolve o
 // resto do mundo e reabre o lobby pra próxima rodada.
 function finalizarRodada() {
   const rodadaJogada = mundo.rodada;
   simularRodadaCompleta();
+  avancarCompeticoesEliminatorias();
   Motor.concluirRodada(mundo); // aqui dentro mundo.rodada já avança pra próxima
   const rodadaSeguinte = mundo.rodada;
   mundo.rodada = rodadaJogada; // Motor.noticia() rotula com mundo.rodada — volta pro valor certo
@@ -196,8 +214,82 @@ function finalizarRodada() {
   agendarTimeout();
 }
 
+// Ações do cliente completo (jogo.html) fora de partida — treino e escalação, que só
+// mexem no clube de quem chamou, então podem virar Motor calls diretas sem trava de
+// concorrência. Mercado fica de fora por enquanto (ver plano da Fase 5).
+function escalarTrocar(clube, a, b) {
+  const J = id => Motor.J(mundo, id);
+  const ia = clube.titulares.indexOf(a), ib = clube.titulares.indexOf(b);
+  if (ia >= 0 && ib >= 0) { clube.titulares[ia] = b; clube.titulares[ib] = a; return; }
+  if (ia >= 0) {
+    if (J(b).suspenso || J(b).lesao || J(b).selecao) throw new Error('Jogador suspenso, lesionado ou convocado não pode entrar.');
+    clube.titulares[ia] = b; return;
+  }
+  if (ib >= 0) {
+    if (J(a).suspenso || J(a).lesao || J(a).selecao) throw new Error('Jogador suspenso, lesionado ou convocado não pode entrar.');
+    clube.titulares[ib] = a; return;
+  }
+}
+const ACOES = {
+  mudarFormacao: (clube, p) => { clube.formacao = p.formacao; Motor.autoEscalar(mundo, clube); },
+  mudarEstilo: (clube, p) => { clube.estilo = p.estilo; },
+  autoEscalar: clube => Motor.autoEscalar(mundo, clube),
+  escalarTrocar: (clube, p) => escalarTrocar(clube, p.a, p.b),
+  treinar: (clube, p) => {
+    if (mundo.fimTemporada) throw new Error('Temporada encerrada.');
+    Motor.treinar(mundo, clube.id, p.tipo);
+  },
+  renovar: (clube, p) => {
+    const j = Motor.J(mundo, p.jogadorId);
+    const custo = Math.round(j.valor * .15 / 1e4) * 1e4, anos = Motor.rnd(2, 4);
+    if (clube.caixa < custo) throw new Error('Caixa insuficiente para renovar.');
+    clube.caixa -= custo; j.contrato += anos; j.salario = Math.round(j.salario * 1.1 / 1000) * 1000; j.moral = Motor.clamp(j.moral + 10, 0, 100);
+    Motor.noticia(mundo, 'Contrato de ' + j.nome + ' renovado por ' + anos + ' anos (' + clube.nome + ').');
+  },
+  reformarEstadio: clube => {
+    const inc = Math.round(clube.capacidade * .12 / 500) * 500, custo = inc * 900;
+    if (clube.caixa < custo) throw new Error('Caixa insuficiente para a reforma.');
+    clube.caixa -= custo; clube.capacidade += inc;
+    Motor.noticia(mundo, clube.nome + ': estádio reformado, capacidade agora é ' + clube.capacidade.toLocaleString('pt-BR') + ' lugares.');
+  },
+  buscarPatrocinio: (clube, p) => {
+    clube.patrocinio = p.oferta;
+    Motor.noticia(mundo, clube.nome + ' fechou novo patrocínio: ' + Motor.fmt(p.oferta) + ' por rodada.');
+  },
+  investirBase: clube => {
+    if (clube.baseNivel >= 3) throw new Error('Nível máximo já investido.');
+    const custo = (clube.baseNivel + 1) * 1.2e6;
+    if (clube.caixa < custo) throw new Error('Caixa insuficiente.');
+    clube.caixa -= custo; clube.baseNivel++;
+    Motor.noticia(mundo, clube.nome + ': categoria de base reforçada, agora nível ' + clube.baseNivel + '.');
+  },
+  contratarStaff: (clube, p) => {
+    const nivel = clube.staff[p.area];
+    if (nivel >= 3) throw new Error('Nível máximo já contratado.');
+    const custo = (nivel + 1) * 1.5e6;
+    if (clube.caixa < custo) throw new Error('Caixa insuficiente.');
+    clube.caixa -= custo; clube.staff[p.area]++;
+    Motor.noticia(mundo, clube.nome + ': comissão técnica reforçada (' + p.area + ' nível ' + clube.staff[p.area] + ').');
+  },
+  resolverPedido: (clube, p) => {
+    if (clube.id !== mundo.meuTime || !mundo.pedidoPendente) return;
+    const ped = mundo.pedidoPendente, j = Motor.J(mundo, ped.jogadorId);
+    if (p.aceitar) { j.salario += ped.aumento; j.moral = Motor.clamp(j.moral + 20, 0, 100); Motor.noticia(mundo, clube.nome + ' aceitou o pedido de aumento de ' + j.nome + '.'); }
+    else { j.moral = Motor.clamp(j.moral - 15, 0, 100); Motor.noticia(mundo, j.nome + ' ficou insatisfeito após a recusa do pedido de aumento (' + clube.nome + ').'); }
+    mundo.pedidoPendente = null;
+  },
+  resolverOferta: (clube, p) => {
+    if (clube.id !== mundo.meuTime || !mundo.ofertaPendente) return;
+    const of = mundo.ofertaPendente, j = Motor.J(mundo, of.jogadorId), comp = mundo.times[of.compradorId];
+    if (p.aceitar) { Motor.transferir(mundo, j, clube, comp, of.oferta); Motor.noticia(mundo, j.nome + ' vendido ao ' + comp.nome + ' por ' + Motor.fmt(of.oferta) + ' (oferta recebida).'); }
+    else Motor.noticia(mundo, clube.nome + ' recusou a oferta de ' + Motor.fmt(of.oferta) + ' do ' + comp.nome + ' por ' + j.nome + '.');
+    mundo.ofertaPendente = null;
+  },
+};
+
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/motor.js', (req, res) => res.sendFile(path.join(__dirname, '..', 'motor.js')));
 const servidorHttp = http.createServer(app);
 const io = new Server(servidorHttp);
 
@@ -234,6 +326,20 @@ io.on('connection', socket => {
   });
 
   socket.on('forcarInicio', () => resolverRodadaAgora());
+
+  socket.on('acao', ({ clubeId, tipo, params }) => {
+    const clube = mundo.times[clubeId];
+    if (!clube || clube.controlador === null) { socket.emit('erro', 'Reivindique um clube antes.'); return; }
+    const handler = ACOES[tipo];
+    if (!handler) { socket.emit('erro', 'Ação desconhecida: ' + tipo); return; }
+    try {
+      handler(clube, params || {});
+      salvar();
+      io.emit('mundo', mundo);
+    } catch (e) {
+      socket.emit('erro', e.message);
+    }
+  });
 
   socket.on('disconnect', () => console.log('Cliente desconectado:', socket.id));
 });
