@@ -281,9 +281,10 @@ function telaInicio(){
 }
 function telaPartidaAoVivo(pm){
   const H=state.times[pm.casaId],A=state.times[pm.foraId];
+  const osDoisHumanos=H.controlador&&A.controlador;
   const stat=(n,a,b)=>{const t=a+b||1;return `<div class="stat"><span class="num r" style="text-align:right">${Math.round(a)}</span><div class="bar"><i style="width:${a/t*100}%"></i><i style="width:${b/t*100}%"></i></div><span class="num">${Math.round(b)}</span><span></span><span class="muted" style="text-align:center">${n}</span></div>`;};
   return `<div class="placar">
-    <div style="text-align:center;color:var(--vermelho);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🔴 AO VIVO — humano x humano</div>
+    <div style="text-align:center;color:var(--vermelho);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🔴 AO VIVO${osDoisHumanos?' — humano x humano':''}</div>
     <div class="linha1"><span>${pm.min<=45?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${pm.min/90*100}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${pm.min}'</span></div>
     <div class="linha2"><div class="time">${linhaTime(H.id)}</div><div class="gols">${pm.gc} x ${pm.gf}</div><div class="time d">${linhaTime(A.id)}</div></div>
     <div class="grid g2" style="gap:18px"><div>

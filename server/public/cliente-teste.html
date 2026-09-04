@@ -135,9 +135,10 @@ function telaPrincipal(meu) {
 
 function telaPartidaAoVivo(p) {
   const H = mundo.times[p.casaId], A = mundo.times[p.foraId];
+  const osDoisHumanos = H.controlador && A.controlador;
   return `
     <div class="aovivo" style="border:1px solid var(--linha);border-radius:6px;padding:10px">
-      <p class="aviso" style="margin:0">🔴 AO VIVO — humano x humano</p>
+      <p class="aviso" style="margin:0">🔴 AO VIVO${osDoisHumanos ? ' — humano x humano' : ''}</p>
       <div class="placar">${H.nome} ${p.gc} x ${p.gf} ${A.nome} <span class="min">— ${p.min}'</span></div>
       <div class="eventos">${p.eventos.slice().reverse().map(e => `<div><small>${e.min}'</small>${e.txt}</div>`).join('') || '<div class="aviso">Bola rolando...</div>'}</div>
     </div>`;

@@ -7,11 +7,12 @@
    sendo coberto pela própria escalação/decisões já em vigor
    (equivalente à IA assumir).
 
-   Ao rodar, qualquer confronto onde os DOIS lados são controlados
+   Ao rodar, qualquer confronto onde PELO MENOS UM lado é controlado
    por um humano vira uma partida ao vivo: minuto a minuto, via
    Motor.minuto() no mesmo ritmo do jogo solo, transmitida por
-   socket.io (evento "partidasAoVivo") até os 90'. O resto da rodada
-   (humano x IA, IA x IA) continua resolvido na hora, como na Fase 1.
+   socket.io (evento "partidasAoVivo") até os 90'. Só jogos IA x IA
+   continuam resolvidos na hora (ninguém precisa ver a bola rolar
+   num jogo que não envolve nenhum humano).
 
    Simplificação consciente: pênaltis/faltas nessas partidas ao vivo
    resolvem sozinhos (sem hooks interativos) — dar a cada lado a
@@ -106,14 +107,17 @@ function resumoPartida(p) {
   return { casaId: p.g.casa, foraId: p.g.fora, min: p.min, gc: p.gc, gf: p.gf, fc: p.fc, ff: p.ff, posse: p.posse, eventos: p.eventos, fim: p.fim };
 }
 
-// Acha os confrontos da rodada onde os dois lados são controlados por humanos e cria
+// Acha os confrontos da rodada onde PELO MENOS UM lado é controlado por um humano e cria
 // as partidas (sem simular nada ainda) — essas ficam de fora do simularRodadaCompleta().
+// Antes só virava "ao vivo" quando os dois lados eram humanos; times de IA resolviam na
+// hora sem transmitir nada, o que ficava estranho pra quem só quer ver o próprio jogo
+// rolando bola. Agora todo humano vê a própria partida ao vivo, seja o adversário quem for.
 function iniciarPartidasAoVivo() {
   const jogos = [];
   Motor.CONFEDERACOES.forEach(conf => {
     Object.keys(mundo.calendario[conf]).forEach(div => {
       mundo.calendario[conf][div][mundo.rodada].forEach(g => {
-        if (g.gc === null && mundo.times[g.casa].controlador && mundo.times[g.fora].controlador) {
+        if (g.gc === null && (mundo.times[g.casa].controlador || mundo.times[g.fora].controlador)) {
           jogos.push(Motor.criarPartida(mundo, g));
         }
       });
