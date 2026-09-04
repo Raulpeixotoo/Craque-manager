@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Craque Manager — Cliente de teste (multiplayer)</title>
+<style>
+:root{--grama:#0f3d2e;--board:#0c1a14;--painel:#142a21;--linha:#25443a;--branco:#f2f5ee;--muted:#9bb3a6;--amarelo:#f5c518;--vermelho:#e0533f;--verde:#7ee081}
+*{box-sizing:border-box}
+body{margin:0;background:var(--board);color:var(--branco);font-family:system-ui,sans-serif;font-size:14px;line-height:1.45}
+h1{font-size:28px;color:var(--amarelo);margin:0 0 6px}
+h2{font-size:18px;margin:0 0 10px}
+p.aviso{color:var(--muted);max-width:60ch}
+main{max-width:900px;margin:0 auto;padding:20px}
+.painel{background:var(--painel);border:1px solid var(--linha);border-radius:6px;padding:14px;margin-bottom:16px}
+input,select{font-family:inherit;background:var(--board);color:var(--branco);border:1px solid var(--linha);padding:6px 8px;border-radius:4px;font-size:13px}
+button{font-family:inherit;cursor:pointer;border:1px solid var(--linha);background:var(--painel);color:var(--branco);padding:6px 12px;border-radius:4px;font-size:13px}
+button:hover:not(:disabled){border-color:var(--amarelo)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primario{background:var(--amarelo);color:#1a1400;border-color:var(--amarelo);font-weight:700}
+.taticas{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.clubes{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.clube{border:1px solid var(--linha);border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px}
+.clube.livre{cursor:pointer}
+.clube.livre:hover{border-color:var(--amarelo)}
+.clube.ocupado{opacity:.55}
+.clube .cor{width:12px;height:12px;border-radius:50%;flex:none}
+.clube small{display:block;color:var(--muted)}
+.noticias div{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
+.noticias small{color:var(--muted);margin-right:8px}
+.placar{font-size:20px;font-weight:700;text-align:center;margin:8px 0}
+.erro{background:rgba(224,83,63,.15);border:1px solid var(--vermelho);padding:8px 12px;border-radius:4px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+let mundo = null;
+let erro = null;
+let confSel = null, divSel = null;
+
+const KEY_APELIDO = 'craque_manager_apelido_teste';
+
+function meuClube() {
+  const apelido = localStorage.getItem(KEY_APELIDO);
+  if (!apelido || !mundo) return null;
+  return mundo.times.find(t => t.controlador && t.controlador.nome === apelido) || null;
+}
+
+function fmtData(n) { return n.toLocaleString('pt-BR'); }
+
+function reivindicar(clubeId) {
+  const apelido = document.getElementById('apelido').value.trim();
+  if (!apelido) { erro = 'Escolha um apelido antes de clicar num clube.'; render(); return; }
+  localStorage.setItem(KEY_APELIDO, apelido);
+  socket.emit('entrar', { clubeId, apelido });
+}
+
+function jogarRodada() {
+  socket.emit('jogarRodada');
+}
+
+function telaEntrar() {
+  const confs = [...new Set(mundo.times.map(t => t.conf))];
+  confSel = confSel || confs[0];
+  const divs = [...new Set(mundo.times.filter(t => t.conf === confSel).map(t => t.div))].sort();
+  divSel = divSel || divs[0];
+  const clubes = mundo.times.filter(t => t.conf === confSel && t.div === divSel);
+  const apelidoSalvo = localStorage.getItem(KEY_APELIDO) || '';
+  return `
+    <h1>Craque Manager — sala de teste</h1>
+    <p class="aviso">Cliente mínimo pra provar que o servidor sincroniza o mundo entre todo
+    mundo conectado. Escolha um apelido e reivindique um clube livre.</p>
+    ${erro ? `<div class="erro">${erro}</div>` : ''}
+    <div class="painel">
+      <label>Apelido <input id="apelido" value="${apelidoSalvo}" placeholder="seu nome"></label>
+    </div>
+    <div class="painel">
+      <h2>Escolha um clube</h2>
+      <div class="taticas">${confs.map(c => `<button class="${c===confSel?'primario':''}" onclick="confSel='${c}';divSel=null;render()">${c}</button>`).join('')}</div>
+      <div class="taticas">${divs.map(d => `<button class="${d===divSel?'primario':''}" onclick="divSel='${d}';render()">Série ${d}</button>`).join('')}</div>
+      <div class="clubes">
+        ${clubes.map(t => `
+          <div class="clube ${t.controlador?'ocupado':'livre'}" ${t.controlador?'':`onclick="reivindicar(${t.id})"`}>
+            <div class="cor" style="background:${t.cor1}"></div>
+            <div><b>${t.nome}</b><small>${t.cidade} · força ${t.forca} · ${t.controlador?('ocupado por '+t.controlador.nome):'livre'}</small></div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function telaPrincipal(meu) {
+  const jogo = mundo.calendario[meu.conf][meu.div][mundo.rodada]?.find(g => g.casa===meu.id || g.fora===meu.id);
+  const casa = jogo && jogo.casa === meu.id;
+  const adversario = jogo ? mundo.times[casa ? jogo.fora : jogo.casa] : null;
+  const jogado = jogo && jogo.gc !== null;
+  const outrosNoClube = mundo.times.filter(t => t.controlador).length;
+  return `
+    <h1>${meu.nome}</h1>
+    <p class="aviso">${meu.cidade} · ${meu.conf} Série ${meu.div} · você é ${meu.controlador.nome} · ${outrosNoClube} clube(s) reivindicado(s) no total</p>
+    ${erro ? `<div class="erro">${erro}</div>` : ''}
+    <div class="painel">
+      <h2>Temporada ${mundo.temporada} — rodada ${Math.min(mundo.rodada+1, mundo.calendario[meu.conf][meu.div].length)}/${mundo.calendario[meu.conf][meu.div].length}</h2>
+      ${mundo.fimTemporada
+        ? '<p>Temporada encerrada — a próxima ainda não pode ser iniciada por este cliente de teste.</p>'
+        : jogo
+          ? `<div class="placar">${mundo.times[jogo.casa].nome} ${jogado?jogo.gc:'-'} x ${jogado?jogo.gf:'-'} ${mundo.times[jogo.fora].nome}</div>`
+          : '<p>Sem jogo encontrado pra essa rodada (raro — confira o calendário).'}
+      <button class="primario" onclick="jogarRodada()" ${mundo.fimTemporada?'disabled':''}>Jogar rodada</button>
+      <p class="aviso">Esse botão roda a rodada pra todo mundo — sem lobby ainda, é só clicar.</p>
+    </div>
+    <div class="painel">
+      <h2>Notícias</h2>
+      <div class="noticias">${mundo.noticias.slice(0,15).map(n => `<div><small>T${n.t} R${n.r}</small>${n.txt}</div>`).join('') || '<p class="aviso">Nada ainda.</p>'}</div>
+    </div>`;
+}
+
+function render() {
+  if (!mundo) { document.getElementById('app').innerHTML = '<main><p>Conectando ao servidor...</p></main>'; return; }
+  const meu = meuClube();
+  document.getElementById('app').innerHTML = `<main>${meu ? telaPrincipal(meu) : telaEntrar()}</main>`;
+  erro = null;
+}
+
+socket.on('mundo', m => { mundo = m; render(); });
+socket.on('erro', msg => { erro = msg; render(); });
+socket.on('connect_error', () => { document.getElementById('app').innerHTML = '<main><p>Não consegui conectar ao servidor.</p></main>'; });
+
+render();
+</script>
+</body>
+</html>

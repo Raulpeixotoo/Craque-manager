@@ -5,8 +5,13 @@
    precisa do estado do jogo recebe `state` como primeiro
    argumento explícito — é assim que o servidor (Fase 1 do plano
    de multiplayer) vai chamar essas mesmas funções.
+
+   Funciona tanto num <script> de navegador (vira window.Motor, como sempre) quanto num
+   require() do Node (servidor da Fase 1) — a casca abaixo só decide onde pendurar o
+   resultado; nenhuma linha de lógica do motor muda entre os dois ambientes.
    ============================================================ */
-window.Motor = (function(){
+(function(){
+const Motor = (function(){
 
 /* ============ UTILIDADES ============ */
 const rnd=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
@@ -580,4 +585,7 @@ return {
   // fim de rodada
   concluirRodada,
 };
+})();
+if(typeof module!=='undefined'&&module.exports)module.exports=Motor;
+if(typeof window!=='undefined')window.Motor=Motor;
 })();
