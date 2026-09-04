@@ -223,7 +223,8 @@ function render(){
     </div>
     ${state.fimTemporada?`<button class="primario" onclick="ui.tela='temporada';render()">Ver fim de temporada</button>`:emAndamento?'<button class="primario" disabled>🔴 Rodada rolando...</button>':''}
   </header>
-  <nav>${telas.map(([id,n])=>`<button class="${ui.tela===id?'ativo':''}" onclick="ui.tela='${id}';ui.sel=null;render()">${n}</button>`).join('')}</nav>
+  <nav>${telas.map(([id,n])=>`<button class="${ui.tela===id?'ativo':''}" onclick="ui.tela='${id}';ui.sel=null;render()">${n}</button>`).join('')}
+    <button style="margin-left:auto" onclick="location.href='/'">🏠 Início</button></nav>
   <main>${erro?`<div class="aviso">${esc(erro)}</div>`:''}${({inicio:telaInicio,elenco:telaElenco,escalacao:telaEscalacao,calendario:telaCalendario,tabela:telaTabela,mercado:telaMercado,financas:telaFinancas,temporada:telaTemporada})[ui.tela]()}</main>`;
   erro=null;
 }
@@ -235,7 +236,8 @@ function telaEntrar(){
   const times=state.times.filter(t=>t.conf===ui.menuConf&&t.div===ui.menuDiv);
   const apelidoSalvo=localStorage.getItem(KEY_APELIDO)||'';
   return `<div class="menu"><h1>Craque Manager</h1>
-  <p>Temporada ${state.temporada} de um mundo compartilhado, já em andamento — escolha um apelido e reivindique um clube livre pra entrar na sala.</p>
+  <p>Temporada ${state.temporada} de um mundo compartilhado, já em andamento — escolha um apelido e reivindique um clube livre pra entrar na sala.
+  Prefere jogar sozinho? <a href="/manager-futebol.html" style="color:var(--amarelo)">Jogue o modo singleplayer</a> — ou <a href="/" style="color:var(--amarelo)">volte pro início</a>.</p>
   ${erro?`<div class="aviso">${esc(erro)}</div>`:''}
   <p class="muted">Apelido</p>
   <input id="apelido" value="${esc(apelidoSalvo)}" placeholder="seu nome">

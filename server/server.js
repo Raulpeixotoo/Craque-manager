@@ -467,6 +467,7 @@ function avancarTemporada() {
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/motor.js', (req, res) => res.sendFile(path.join(__dirname, '..', 'motor.js')));
+app.get('/manager-futebol.html', (req, res) => res.sendFile(path.join(__dirname, '..', 'manager-futebol.html')));
 const servidorHttp = http.createServer(app);
 const io = new Server(servidorHttp);
 

@@ -410,7 +410,8 @@ function telaMenu(){
   const todos=TIMES_BASE.concat(TIMES_MUNDO).map((t,i)=>({...t,i,conf:t.conf||'SA'}));
   const times=todos.filter(t=>t.conf===conf&&t.div===div);
   return `<div class="menu"><h1>Craque Manager</h1>
-  <p>Escolha um clube, monte a escalação, negocie no mercado e leve o time ao título mundial. 5 confederações, 4 divisões cada, com acesso e rebaixamento, Copa Nacional, Copa Continental e Mundial de Clubes. O progresso fica salvo neste navegador.</p>
+  <p>Escolha um clube, monte a escalação, negocie no mercado e leve o time ao título mundial. 5 confederações, 4 divisões cada, com acesso e rebaixamento, Copa Nacional, Copa Continental e Mundial de Clubes. O progresso fica salvo neste navegador.
+  ${location.protocol!=='file:'?' <a href="/" style="color:var(--amarelo)">Prefere jogar com a galera? Volte pro início e escolha o multiplayer.</a>':''}</p>
   ${temSave()?`<button class="primario" onclick="const s=carregar();if(s){state=s;ui.tela='inicio';render();}else{alert('Esse save é de uma versão antiga (antes da expansão mundial) e não é compatível. Comece um novo jogo.');apagarSave();}">Continuar jogo salvo</button> <button onclick="apagarSave()">Apagar jogo salvo</button>`:''}
   <h2 style="margin-top:24px">Começar novo jogo</h2>
   <p class="muted">Confederação</p>

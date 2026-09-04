@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Craque Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Barlow:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --grama:#0f3d2e; --board:#0c1a14; --painel:#142a21; --linha:#25443a;
+  --branco:#f2f5ee; --muted:#9bb3a6; --amarelo:#f5c518;
+  --fd:"Barlow Condensed","Arial Narrow",sans-serif; --fb:"Barlow",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--board);color:var(--branco);font-family:var(--fb);display:flex;align-items:center;justify-content:center}
+.wrap{max-width:760px;margin:40px auto;padding:20px}
+h1{font-family:var(--fd);font-size:56px;color:var(--amarelo);letter-spacing:1px;margin:0 0 6px}
+p.sub{color:var(--muted);margin:0 0 28px;max-width:56ch}
+.opcoes{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:600px){.opcoes{grid-template-columns:1fr}}
+a.opcao{display:block;background:var(--painel);border:1px solid var(--linha);border-radius:8px;padding:20px;text-decoration:none;color:var(--branco);transition:border-color .15s}
+a.opcao:hover{border-color:var(--amarelo)}
+a.opcao .emoji{font-size:32px}
+a.opcao h2{font-family:var(--fd);font-size:22px;color:var(--amarelo);margin:8px 0 4px}
+a.opcao p{color:var(--muted);font-size:13px;margin:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Craque Manager</h1>
+  <p class="sub">Monte seu clube, negocie no mercado e leve o time ao título mundial.</p>
+  <div class="opcoes">
+    <a class="opcao" href="/jogo.html">
+      <div class="emoji">🌐</div>
+      <h2>Multiplayer</h2>
+      <p>Jogue com a galera num mundo compartilhado — cada um comanda um clube, rodadas e partidas ao vivo em conjunto.</p>
+    </a>
+    <a class="opcao" href="/manager-futebol.html">
+      <div class="emoji">👤</div>
+      <h2>Singleplayer</h2>
+      <p>Jogue sozinho, no seu ritmo — o progresso fica salvo neste navegador, sem depender de mais ninguém.</p>
+    </a>
+  </div>
+</div>
+</body>
+</html>
