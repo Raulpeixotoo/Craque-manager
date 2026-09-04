@@ -380,6 +380,54 @@ const ACOES = {
     else Motor.noticia(mundo, clube.nome + ' recusou a oferta de ' + Motor.fmt(of.oferta) + ' do ' + comp.nome + ' por ' + j.nome + '.');
     mundo.ofertaPendente = null;
   },
+  comprar: (clube, p) => {
+    if (!mundo.janela.aberta) throw new Error('A janela de transferências está fechada.');
+    const j = Motor.J(mundo, p.jogadorId);
+    if (!j) throw new Error('Jogador não encontrado.');
+    const de = mundo.times[j.time];
+    if (de.id === clube.id) throw new Error('Esse jogador já é seu.');
+    if (clube.jogadores.length >= 25) throw new Error('Elenco no limite de 25 jogadores.');
+    if (de.jogadores.length <= 11) throw new Error(de.nome + ' não pode vender: ficaria sem jogadores suficientes para escalar um time.');
+    const preco = Math.round(j.valor * 1.15 / 1e4) * 1e4;
+    if (clube.caixa < preco) throw new Error('Caixa insuficiente para essa compra.');
+    Motor.transferir(mundo, j, de, clube, preco);
+    j.moral = 80;
+    Motor.noticia(mundo, clube.nome + ' contratou ' + j.nome + ' (' + j.pos + ', força ' + j.forca + ') por ' + Motor.fmt(preco) + '.');
+  },
+  vender: (clube, p) => {
+    if (!mundo.janela.aberta) throw new Error('A janela de transferências está fechada.');
+    const j = Motor.J(mundo, p.jogadorId);
+    if (!j || j.time !== clube.id) throw new Error('Esse jogador não é seu.');
+    if (clube.titulares.includes(j.id)) throw new Error('Jogador titular precisa sair do time antes de ser vendido.');
+    if (clube.jogadores.length <= 16) throw new Error('Elenco no mínimo de 16 jogadores.');
+    const preco = Math.round(j.valor * .85 / 1e4) * 1e4;
+    const para = Motor.pick(mundo.times.filter(t => t.id !== clube.id && t.jogadores.length < 25)) || mundo.times.find(t => t.id !== clube.id);
+    Motor.transferir(mundo, j, clube, para, preco);
+    Motor.noticia(mundo, j.nome + ' vendido ao ' + para.nome + ' por ' + Motor.fmt(preco) + ' (' + clube.nome + ').');
+  },
+  proporOferta: (clube, p) => {
+    if (!mundo.janela.aberta) throw new Error('A janela de transferências está fechada.');
+    const j = Motor.J(mundo, p.jogadorId);
+    if (!j) throw new Error('Jogador não encontrado.');
+    const de = mundo.times[j.time];
+    if (de.id === clube.id) throw new Error('Esse jogador já é seu.');
+    if (clube.jogadores.length >= 25) throw new Error('Elenco no limite de 25 jogadores.');
+    if (de.jogadores.length <= 11) throw new Error(de.nome + ' não pode vender: ficaria sem jogadores suficientes para escalar um time.');
+    const oferta = Math.round(Number(p.oferta) / 1e4) * 1e4;
+    if (!oferta || oferta <= 0) throw new Error('Valor de oferta inválido.');
+    if (clube.caixa < oferta) throw new Error('Caixa insuficiente para essa proposta.');
+    let minimo = j.valor;
+    if (de.titulares.includes(j.id)) minimo *= 1.4;
+    if (de.jogadores.length <= 17) minimo *= 1.25;
+    if (de.caixa < 0) minimo *= .85;
+    if (oferta >= minimo) {
+      Motor.transferir(mundo, j, de, clube, oferta);
+      j.moral = 80;
+      Motor.noticia(mundo, 'Proposta aceita! ' + clube.nome + ' contratou ' + j.nome + ' do ' + de.nome + ' por ' + Motor.fmt(oferta) + '.');
+    } else {
+      throw new Error(de.nome + ' recusou a proposta. Eles pedem pelo menos ' + Motor.fmt(Math.round(minimo / 1e4) * 1e4) + '.');
+    }
+  },
 };
 
 // Motor.novaTemporada() já atualiza o mundo inteiro corretamente pra todo mundo (acesso e

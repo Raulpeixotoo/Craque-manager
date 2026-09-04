@@ -143,7 +143,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 let state=null;
 let partidasAoVivo=[];
 let erro=null;
-let ui={tela:'inicio',sel:null,filtroPos:'',filtroConf:'',filtroIdadeMax:'',filtroValorMax:'',clubeVisto:null};
+let ui={tela:'inicio',sel:null,filtroPos:'',filtroConf:'',filtroIdadeMax:'',filtroValorMax:'',clubeVisto:null,vendaPendente:null};
 const KEY_APELIDO='craque_manager_apelido';
 
 function meu(){
@@ -501,7 +501,7 @@ function telaMercado(){
   }).sort((a,b)=>b.forca-a.forca).slice(0,60);
   const meus=m.jogadores.map(J).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.valor-a.valor);
   const outros=state.times.filter(t=>t.id!==m.id).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
-  return `<div class="aviso">Mercado sincronizado ainda não chegou neste cliente — dá pra ver preços e elencos, mas comprar/vender fica pra uma próxima atualização.</div>
+  return `${painelVenda()}${state.janela.aberta?`<div class="ok">Janela de transferências aberta — ${state.janela.dias} dia(s) restante(s).</div>`:`<div class="aviso">Janela de transferências fechada. Volte no meio ou no fim da temporada.</div>`}
   <div class="painel"><h2>Espionar clube</h2>
   <label>Clube <select onchange="ui.clubeVisto=this.value?Number(this.value):null;render()">
     <option value="">Selecione...</option>
@@ -520,18 +520,59 @@ function telaMercado(){
   </div>
   <p class="muted">Preço fixo = valor de mercado + 15%. Elenco máximo: 25 jogadores. Mostrando até 60 resultados, ordenados por força.</p>
   <table><tr><th>Nome</th><th>Time</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Preço</th><th></th></tr>
-  ${lista.map(j=>{const preco=Math.round(j.valor*1.15/1e4)*1e4;
-    return `<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}</td><td class="muted">${esc(state.times[j.time].nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(preco)}</td><td><button disabled title="Em breve">Comprar</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">Nenhum jogador encontrado com esses filtros.</td></tr>'}</table></div>
-  <div class="painel"><h2>Vender</h2><p class="muted">Você recebe 85% do valor. Mercado ainda não está sincronizado neste cliente.</p>
+  ${lista.map(j=>{const preco=Math.round(j.valor*1.15/1e4)*1e4;const ok=state.janela.aberta&&m.caixa>=preco&&m.jogadores.length<25&&state.times[j.time].jogadores.length>11;
+    return `<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}</td><td class="muted">${esc(state.times[j.time].nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(preco)}</td><td><button ${ok?'':'disabled'} onclick="comprar(${j.id},${preco})">Comprar</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">Nenhum jogador encontrado com esses filtros.</td></tr>'}</table></div>
+  <div class="painel"><h2>Vender</h2><p class="muted">Você recebe 85% do valor. Elenco mínimo: 16 jogadores. Titulares precisam sair do time antes.</p>
   <table><tr><th>Nome</th><th>Pos</th><th class="r">Força</th><th class="r">Salário</th><th class="r">Recebe</th><th></th></tr>
-  ${meus.map(j=>{const preco=Math.round(j.valor*.85/1e4)*1e4;
-    return `<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(preco)}</td><td><button disabled title="Em breve">Vender</button></td></tr>`;}).join('')}</table></div></div>`;
+  ${meus.map(j=>{const preco=Math.round(j.valor*.85/1e4)*1e4;const ok=state.janela.aberta&&!m.titulares.includes(j.id)&&m.jogadores.length>16;
+    return `<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(preco)}</td><td><button ${ok?'':'disabled'} onclick="vender(${j.id},${preco})">Vender</button></td></tr>`;}).join('')}</table></div></div>`;
 }
 function telaClube(id){
   const t=state.times[id],js=t.jogadores.map(J).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.forca-a.forca);
   return `<div class="painel" style="margin-top:14px"><h3>${esc(t.nome)} <span class="muted" style="font-size:13px">— ${esc(t.cidade)} · Série ${t.div} · ${posicao(t.id)}º lugar · caixa ${fmt(t.caixa)}</span></h3>
   <table><tr><th>Nome</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Valor</th><th></th></tr>
-  ${js.map(j=>`<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}${t.titulares.includes(j.id)?' <b style="color:var(--amarelo)">T</b>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.valor)}</td><td><button disabled title="Em breve">Propor oferta</button></td></tr>`).join('')}</table></div>`;
+  ${js.map(j=>`<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}${t.titulares.includes(j.id)?' <b style="color:var(--amarelo)">T</b>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.valor)}</td><td><button ${state.janela.aberta&&t.jogadores.length>11?'':'disabled'} onclick="proporOferta(${j.id})">Propor oferta</button></td></tr>`).join('')}</table></div>`;
+}
+function proporOferta(id){
+  if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}
+  const j=J(id),de=state.times[j.time],m=meu();
+  if(de.id===m.id){alert('Esse jogador já é seu.');return;}
+  if(m.jogadores.length>=25){alert('Elenco no limite de 25 jogadores.');return;}
+  if(de.jogadores.length<=11){alert(de.nome+' não pode vender: ficaria sem jogadores suficientes para escalar um time.');return;}
+  const sugestao=Math.round(j.valor*1.1/1e4)*1e4;
+  const entrada=prompt('Proposta por '+j.nome+' ('+de.nome+'). Valor de mercado: '+fmt(j.valor)+'. Quanto quer oferecer?',sugestao);
+  if(entrada===null)return;
+  const oferta=Math.round(Number(String(entrada).replace(/[^\d]/g,''))/1e4)*1e4;
+  if(!oferta||oferta<=0){alert('Valor inválido.');return;}
+  if(m.caixa<oferta){alert('Caixa insuficiente para essa proposta.');return;}
+  acao('proporOferta',{jogadorId:id,oferta});
+}
+function comprar(id,preco){
+  if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}
+  const j=J(id);
+  if(!confirm('Contratar '+j.nome+' por '+fmt(preco)+'?'))return;
+  acao('comprar',{jogadorId:id});
+}
+function vender(id,preco){
+  if(!state.janela.aberta){alert('A janela de transferências está fechada.');return;}
+  ui.vendaPendente={id,preco};render();
+}
+function confirmarVenda(){
+  const v=ui.vendaPendente;if(!v)return;
+  acao('vender',{jogadorId:v.id});
+  ui.vendaPendente=null;render();
+}
+function cancelarVenda(){ui.vendaPendente=null;render();}
+function painelVenda(){
+  const v=ui.vendaPendente;if(!v)return'';
+  const j=J(v.id);
+  return `<div class="painel" style="border-color:var(--vermelho);margin-bottom:14px"><h3>Confirmar venda</h3>
+  <p>Vender <b>${esc(j.nome)}</b>${estrelaTag(j.forca)}?</p>
+  <table style="margin:8px 0"><tr><td>Posição</td><td class="r"><span class="tag ${j.pos}">${j.pos}</span></td></tr>
+  <tr><td>Idade</td><td class="r num">${j.idade}</td></tr>
+  <tr><td>Força</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td></tr>
+  <tr><td>Você recebe</td><td class="r">${fmt(v.preco)}</td></tr></table>
+  <button class="primario" onclick="confirmarVenda()">Confirmar venda</button> <button onclick="cancelarVenda()">Cancelar</button></div>`;
 }
 function reformarEstadio(){
   const m=meu(),inc=Math.round(m.capacidade*.12/500)*500,custo=inc*900;

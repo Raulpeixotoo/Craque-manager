@@ -1,2 +1,5 @@
 node_modules/
 mundo.json
+mundo.json.bak.*
+server_out.log
+server_err.log
