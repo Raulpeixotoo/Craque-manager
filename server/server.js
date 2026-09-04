@@ -28,6 +28,7 @@ const Motor = require('../motor.js');
 const PORTA = 3000;
 const ARQUIVO_MUNDO = path.join(__dirname, 'mundo.json');
 const TIMEOUT_LOBBY_MS = 5 * 60 * 1000; // 5 min sem todo mundo pronto -> força sozinho
+const TREINO_PONTOS_POR_RODADA = 10; // orçamento de treino de cada clube, renovado a cada rodada
 
 function rodadaEstadoPadrao() {
   return { status: 'lobby', prontos: [], timeoutAt: Date.now() + TIMEOUT_LOBBY_MS };
@@ -36,7 +37,7 @@ function rodadaEstadoPadrao() {
 function carregarOuCriarMundo() {
   if (fs.existsSync(ARQUIVO_MUNDO)) {
     const mundo = JSON.parse(fs.readFileSync(ARQUIVO_MUNDO, 'utf8'));
-    mundo.times.forEach(t => { if (t.controlador === undefined) t.controlador = null; });
+    mundo.times.forEach(t => { if (t.controlador === undefined) t.controlador = null; if (t.pontosTreino === undefined) t.pontosTreino = TREINO_PONTOS_POR_RODADA; });
     if (!mundo.rodadaEstado || mundo.rodadaEstado.status !== 'lobby') {
       // Se o servidor caiu no meio de uma rodada ao vivo, as partidas em memória se
       // perdem — mas os jogos que ainda não têm placar continuam com gc:null no
@@ -47,7 +48,7 @@ function carregarOuCriarMundo() {
     return mundo;
   }
   const mundo = Motor.novoJogo(0);
-  mundo.times.forEach(t => { t.controlador = null; });
+  mundo.times.forEach(t => { t.controlador = null; t.pontosTreino = TREINO_PONTOS_POR_RODADA; });
   mundo.rodadaEstado = rodadaEstadoPadrao();
   console.log('Nenhum mundo.json encontrado — mundo novo criado.');
   return mundo;
@@ -192,6 +193,23 @@ function avancarCompeticoesEliminatorias() {
   }
 }
 
+// Motor.concluirRodada() só decai o treino (pra 40%, toda rodada) do time de referência —
+// no solo só existe um time treinando. Aqui, todo clube humano treina, então todo clube
+// humano precisa decair — e todo mundo ganha de volta o orçamento de pontos pra próxima.
+function decairTreinoEDarPontos() {
+  timesHumanos().forEach(t => {
+    if (t.id !== mundo.meuTime) {
+      t.treino = {
+        passe: Math.round(t.treino.passe * .4),
+        falta: Math.round(t.treino.falta * .4),
+        penalti: Math.round(t.treino.penalti * .4),
+        fisico: Math.round(t.treino.fisico * .4),
+      };
+    }
+    t.pontosTreino = TREINO_PONTOS_POR_RODADA;
+  });
+}
+
 // Chamada depois que toda partida ao vivo (se houve alguma) já terminou — resolve o
 // resto do mundo e reabre o lobby pra próxima rodada.
 function finalizarRodada() {
@@ -199,6 +217,7 @@ function finalizarRodada() {
   simularRodadaCompleta();
   avancarCompeticoesEliminatorias();
   Motor.concluirRodada(mundo); // aqui dentro mundo.rodada já avança pra próxima
+  decairTreinoEDarPontos();
   const rodadaSeguinte = mundo.rodada;
   mundo.rodada = rodadaJogada; // Motor.noticia() rotula com mundo.rodada — volta pro valor certo
   noticiarPartidasDosHumanos(rodadaJogada);
@@ -237,6 +256,8 @@ const ACOES = {
   escalarTrocar: (clube, p) => escalarTrocar(clube, p.a, p.b),
   treinar: (clube, p) => {
     if (mundo.fimTemporada) throw new Error('Temporada encerrada.');
+    if ((clube.pontosTreino || 0) <= 0) throw new Error('Sem pontos de treino sobrando nesta rodada.');
+    clube.pontosTreino--;
     Motor.treinar(mundo, clube.id, p.tipo);
   },
   renovar: (clube, p) => {
@@ -287,6 +308,30 @@ const ACOES = {
   },
 };
 
+// Motor.novaTemporada() já atualiza o mundo inteiro corretamente pra todo mundo (acesso e
+// rebaixamento em todas as divisões, elenco de todos os times envelhecendo) — só a
+// notícia de título/torcida e a base de categoria são específicas do time de referência
+// (ver memória do projeto). Isso ainda não está 100% por perspectiva, mas destrava todo
+// mundo pra seguir jogando em vez de ficar preso na tela de fim de temporada.
+function avancarTemporada() {
+  const divAntes = {};
+  timesHumanos().forEach(t => { divAntes[t.id] = t.div; });
+  Motor.novaTemporada(mundo);
+  const ordem = ['A', 'B', 'C', 'D'];
+  timesHumanos().forEach(t => {
+    if (t.id === mundo.meuTime) return; // esse já foi noticiado pelo próprio Motor.novaTemporada
+    if (t.div !== divAntes[t.id]) {
+      const subiu = ordem.indexOf(t.div) < ordem.indexOf(divAntes[t.id]);
+      Motor.noticia(mundo, t.nome + (subiu ? ' subiu' : ' caiu') + ' pra Série ' + t.div + '.');
+    }
+  });
+  mundo.rodadaEstado = rodadaEstadoPadrao();
+  salvar();
+  io.emit('mundo', mundo);
+  console.log('Temporada avançada — agora na temporada', mundo.temporada);
+  agendarTimeout();
+}
+
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/motor.js', (req, res) => res.sendFile(path.join(__dirname, '..', 'motor.js')));
@@ -326,6 +371,11 @@ io.on('connection', socket => {
   });
 
   socket.on('forcarInicio', () => resolverRodadaAgora());
+
+  socket.on('avancarTemporada', () => {
+    if (!mundo.fimTemporada) { socket.emit('erro', 'A temporada ainda não terminou.'); return; }
+    avancarTemporada();
+  });
 
   socket.on('acao', ({ clubeId, tipo, params }) => {
     const clube = mundo.times[clubeId];
