@@ -109,6 +109,19 @@ td.r,th.r{text-align:right}
 .noticias small{color:var(--muted);margin-right:8px;font-family:var(--fd)}
 .res{font-family:var(--fd);font-weight:700;padding:1px 6px;border-radius:3px;font-size:13px;min-width:22px;display:inline-block;text-align:center}
 .res.V{background:#2f7a35}.res.E{background:#666}.res.D{background:#8d2c2c}
+/* calendário */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:6px}
+@media(max-width:800px){.cal-grid{grid-template-columns:repeat(4,1fr)}}
+.cal-dia{background:var(--board);border:1px solid var(--linha);border-radius:6px;padding:6px;min-height:74px}
+.cal-dia.atual{border-color:var(--amarelo)}
+.cal-dia .cal-num{display:flex;justify-content:space-between;font-family:var(--fd);font-size:11px;color:var(--muted);margin-bottom:3px}
+.cal-evento{font-size:11px;padding:2px 5px;border-radius:3px;margin-top:3px;border-left:3px solid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-evento.camp{background:rgba(126,224,129,.15);border-color:#7ee081}
+.cal-evento.copa{background:rgba(245,197,24,.15);border-color:var(--amarelo)}
+.cal-evento.cont{background:rgba(74,163,223,.15);border-color:var(--azul)}
+.cal-vazio{font-size:11px}
+.cal-dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.cal-dot.camp{background:#7ee081}.cal-dot.copa{background:var(--amarelo)}.cal-dot.cont{background:var(--azul)}
 </style>
 </head>
 <body>
@@ -464,9 +477,40 @@ function painelMundial(){
   }else corpo=`<p class="muted">Aguardando os campeões continentais (${feitos}/5 definidos) para disputar o Mundial de Clubes.</p>`;
   return `<div class="painel"><h2>🌍 Mundial de Clubes</h2>${corpo}</div>`;
 }
+function celulasCalendario(m){
+  const cont=state.continentais[m.conf];
+  const cels=[];
+  for(let r=0;r<RODADAS_TEMPORADA;r++){
+    const eventos=[];
+    const g=state.calendario[m.conf][m.div][r].find(x=>x.casa===m.id||x.fora===m.id);
+    if(g){const casa=g.casa===m.id,adv=casa?g.fora:g.casa,jogado=g.gc!==null;
+      eventos.push({tipo:'camp',casa,adv,resultado:jogado?(casa?g.gc+' x '+g.gf:g.gf+' x '+g.gc):null});}
+    if(state.copa&&state.copa.campeao==null&&state.copa.jogos.length&&state.copa.rodadaAlvo===r){
+      const jc=state.copa.jogos.find(x=>x.a===m.id||x.b===m.id);
+      if(jc)eventos.push({tipo:'copa',casa:jc.a===m.id,adv:jc.a===m.id?jc.b:jc.a,resultado:null});
+    }
+    if(cont&&cont.campeao==null&&cont.jogos.length&&cont.rodadaAlvo===r){
+      const jc=cont.jogos.find(x=>x.a===m.id||x.b===m.id);
+      if(jc)eventos.push({tipo:'cont',casa:jc.a===m.id,adv:jc.a===m.id?jc.b:jc.a,resultado:null});
+    }
+    cels.push({r,dia:diaDaRodada(r),atual:r===state.rodada,eventos});
+  }
+  return cels;
+}
+function celulaCalendarioHtml(c){
+  const evHtml=c.eventos.map(e=>`<div class="cal-evento ${e.tipo}" title="${esc(state.times[e.adv].nome)}">${e.casa?'🏠':'✈️'} ${esc(state.times[e.adv].nome)}${e.resultado?' · '+e.resultado:''}</div>`).join('')||'<div class="cal-vazio muted">-</div>';
+  return `<div class="cal-dia ${c.atual?'atual':''}"><div class="cal-num"><span>Rod. ${c.r+1}</span><span>dia ${c.dia}</span></div>${evHtml}</div>`;
+}
+function calendarioGrid(m){
+  return `<div class="cal-grid">${celulasCalendario(m).map(celulaCalendarioHtml).join('')}</div>
+  <div class="muted" style="margin-top:8px;display:flex;gap:14px;font-size:12px">
+    <span><span class="cal-dot camp"></span>Campeonato</span>
+    <span><span class="cal-dot copa"></span>Copa Nacional</span>
+    <span><span class="cal-dot cont"></span>Continental</span>
+  </div>`;
+}
 function telaCalendario(){
   const m=meu();
-  const jogos=state.calendario[m.conf][m.div].map((r,i)=>({r:i,dia:diaDaRodada(i),g:r.find(g=>g.casa===m.id||g.fora===m.id)})).filter(x=>x.g);
   const dm=m.jogadores.map(J).filter(j=>j.lesao>0||j.suspenso>0);
   return `<div class="grid g2">
   <div class="painel"><h2>Treino — ${m.pontosTreino??0} ponto(s) restante(s)</h2>
@@ -484,10 +528,8 @@ function telaCalendario(){
   ${telaTorneio(state.continentais[m.conf],'Copa Continental — '+CONF_NOME[m.conf])}
   ${painelMundial()}
   <div class="painel" style="grid-column:1/-1"><h2>Calendário — Série ${m.div} (${CONF_NOME[m.conf]})</h2>
-  <table><tr><th class="r">Dia</th><th class="r">Rod.</th><th>Mando</th><th>Adversário</th><th class="r">Resultado</th></tr>
-  ${jogos.map(({r,dia,g})=>{const casa=g.casa===m.id;const adv=casa?g.fora:g.casa;const jogado=g.gc!==null;
-    return `<tr class="${r===state.rodada?'eu':''}"><td class="r num muted">${dia}</td><td class="r num">${r+1}</td><td>${casa?'Casa':'Fora'}</td><td>${linhaTime(adv)}</td><td class="r">${jogado?(casa?g.gc+' x '+g.gf:g.gf+' x '+g.gc):r===state.rodada?'<span class="pos">Próximo</span>':'<span class="muted">-</span>'}</td></tr>`;}).join('')}
-  </table></div>
+  ${calendarioGrid(m)}
+  </div>
   </div>`;
 }
 function telaTabela(){
