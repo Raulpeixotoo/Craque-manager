@@ -465,6 +465,11 @@ function novaTemporada(state){
 }
 
 /* ============ MERCADO / ECONOMIA ============ */
+function hash01(n){n=(n^61)^(n>>>16);n+=n<<3;n^=n>>>4;n=Math.imul(n,0x27d4eb2d);n^=n>>>15;return(n>>>0)/4294967295;}
+function disponivelNoMercado(state,j){
+  if(j.forca<90)return true;
+  return hash01(j.id*1000003+state.rodada*97+state.temporada*131)<.07;
+}
 function transferir(state,j,de,para,preco){
   de.jogadores=de.jogadores.filter(id=>id!==j.id);de.titulares=de.titulares.filter(id=>id!==j.id);
   para.jogadores.push(j.id);j.time=para.id;de.caixa+=preco;para.caixa-=preco;
@@ -601,7 +606,7 @@ return {
   // tabela/temporada
   tabela,posicao,resumoTemporada,premiosMundiais,novaTemporada,
   // economia/mercado
-  transferir,negocioIA,eventoVestiario,convocarSelecao,ofertaRecebida,treinar,
+  transferir,negocioIA,eventoVestiario,convocarSelecao,ofertaRecebida,treinar,disponivelNoMercado,
   // fim de rodada
   concluirRodada,
 };

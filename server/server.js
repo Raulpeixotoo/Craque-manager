@@ -149,14 +149,24 @@ function pausar(p) { p.pausado = true; p.pausadoEm = Date.now(); }
 
 function tickPartidasAoVivo() {
   const agora = Date.now();
+  // Só transmite quando algo realmente mudou nesta rodada de tick. Antes emitíamos sempre,
+  // o que forçava TODO cliente conectado a re-renderizar a tela inteira a cada 260ms mesmo
+  // com a própria partida pausada (ou nem tendo partida nenhuma) — na prática isso fechava
+  // o <select> de tática no meio do clique e atrapalhava a substituição, porque bastava
+  // QUALQUER OUTRA partida ao vivo (de outro humano) avançar pra redesenhar a tela de todo
+  // mundo. Time parado (esperando humano) não gera evento nenhum, igual ao solo (que
+  // literalmente para o timer local ao pausar).
+  let mudou = false;
   partidasAoVivo.forEach(p => {
     if (p.fim) return;
     if (p.pausado) {
       if (agora - (p.pausadoEm || agora) < PAUSA_TIMEOUT_MS) return;
       p.pausado = false;
       [p.g.casa, p.g.fora].forEach(id => { p.subForcada[id] = null; });
+      mudou = true;
     }
     Motor.minuto(mundo, p);
+    mudou = true;
     // lesão em time humano pausa a partida pra esse lado pedir substituição — igual ao solo,
     // só que agora por lado, já que os dois times de uma partida podem ser humanos.
     [[p.g.casa, mundo.times[p.g.casa]], [p.g.fora, mundo.times[p.g.fora]]].forEach(([timeId, time]) => {
@@ -166,7 +176,7 @@ function tickPartidasAoVivo() {
     });
     if (p.min === 45 && !p.intervaloFeito) { p.intervaloFeito = true; pausar(p); }
   });
-  io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+  if (mudou) io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
   if (partidasAoVivo.every(p => p.fim)) {
     clearInterval(tickHandle);
     partidasAoVivo = null;

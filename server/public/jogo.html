@@ -493,6 +493,7 @@ function telaMercado(){
   const m=meu();
   const lista=Object.values(state.jogadores).filter(j=>{
     if(j.time===m.id||j.emBase)return false;
+    if(!Motor.disponivelNoMercado(state,j))return false;
     if(ui.filtroPos&&j.pos!==ui.filtroPos)return false;
     if(ui.filtroConf&&state.times[j.time].conf!==ui.filtroConf)return false;
     if(ui.filtroIdadeMax&&j.idade>Number(ui.filtroIdadeMax))return false;
@@ -518,7 +519,7 @@ function telaMercado(){
     <label>Valor até (R$) <input type="number" min="0" step="50000" placeholder="qualquer" style="width:110px" value="${ui.filtroValorMax||''}" onchange="ui.filtroValorMax=this.value;render()"></label>
     <button onclick="ui.filtroPos='';ui.filtroConf='';ui.filtroIdadeMax='';ui.filtroValorMax='';render()">Limpar filtros</button>
   </div>
-  <p class="muted">Preço fixo = valor de mercado + 15%. Elenco máximo: 25 jogadores. Mostrando até 60 resultados, ordenados por força.</p>
+  <p class="muted">Preço fixo = valor de mercado + 15%. Elenco máximo: 25 jogadores. Mostrando até 60 resultados, ordenados por força. Craques de nível mundial raramente aparecem aqui — pra contratar um, espione o clube dele e proponha uma oferta direto.</p>
   <table><tr><th>Nome</th><th>Time</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Preço</th><th></th></tr>
   ${lista.map(j=>{const preco=Math.round(j.valor*1.15/1e4)*1e4;const ok=state.janela.aberta&&m.caixa>=preco&&m.jogadores.length<25&&state.times[j.time].jogadores.length>11;
     return `<tr><td>${esc(j.nome)}${estrelaTag(j.forca)}</td><td class="muted">${esc(state.times[j.time].nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(preco)}</td><td><button ${ok?'':'disabled'} onclick="comprar(${j.id},${preco})">Comprar</button></td></tr>`;}).join('')||'<tr><td colspan="7" class="muted">Nenhum jogador encontrado com esses filtros.</td></tr>'}</table></div>
@@ -652,13 +653,18 @@ function avancarTemporada(){
 /* ============ MULTIPLAYER: conexão ============ */
 const socket=io();
 socket.on('mundo',m=>{state=m;if(state.rodadaEstado.status==='lobby')partidasAoVivo=[];render();});
+let ultimaMinhaPartidaJSON=null;
 socket.on('partidasAoVivo',lista=>{
   partidasAoVivo=lista;
   const m=meu();
-  if(m){
-    const minha=lista.find(p=>p.casaId===m.id||p.foraId===m.id);
-    if(minha)verMinhaPartidaAteContinuar=minha.fim?minha:null;
-  }
+  const minha=m?lista.find(p=>p.casaId===m.id||p.foraId===m.id):null;
+  if(minha)verMinhaPartidaAteContinuar=minha.fim?minha:null;
+  // Redesenhar a tela inteira a cada tick (mesmo sem nada novo pra mim) fecha o <select>
+  // de tática no meio do clique e atrapalha a substituição — só renderiza de novo quando
+  // a MINHA partida muda de verdade (outra partida ao vivo, de outro humano, não conta).
+  const chave=JSON.stringify(minha);
+  if(chave===ultimaMinhaPartidaJSON)return;
+  ultimaMinhaPartidaJSON=chave;
   render();
 });
 socket.on('erro',msg=>{erro=msg;render();});
