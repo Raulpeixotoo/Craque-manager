@@ -44,7 +44,7 @@ main{padding:18px;flex:1;max-width:1200px;width:100%;margin:0 auto}
 .g2{grid-template-columns:1fr 1fr}
 .g3{grid-template-columns:2fr 1fr}
 @media(max-width:800px){.g2,.g3{grid-template-columns:1fr}}
-.painel{background:var(--painel);border:1px solid var(--linha);border-radius:6px;padding:14px}
+.painel{background:var(--painel);border:1px solid var(--linha);border-radius:6px;padding:14px;overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;color:var(--muted);font-weight:400;font-size:11px;padding:4px 6px;border-bottom:1px solid var(--linha)}
 td{padding:5px 6px;border-bottom:1px solid rgba(255,255,255,.04)}
@@ -100,7 +100,7 @@ td.r,th.r{text-align:right}
 .jogos td{padding:4px 6px}
 .jogos .plc{font-family:var(--fd);font-weight:700;font-size:16px;text-align:center;background:var(--board);border-radius:3px;padding:0 6px}
 .jogos tr.eu td{background:rgba(245,197,24,.12)}
-.controles{display:flex;gap:8px;align-items:center;margin:12px 0}
+.controles{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
 .aviso{background:rgba(224,83,63,.15);border:1px solid var(--vermelho);padding:8px 12px;border-radius:4px;margin:10px 0}
 .ok{background:rgba(126,224,129,.12);border:1px solid #7ee081;padding:8px 12px;border-radius:4px;margin:10px 0}
 .noticias div{padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)}
@@ -120,6 +120,27 @@ td.r,th.r{text-align:right}
 .cal-vazio{font-size:11px}
 .cal-dot{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:middle}
 .cal-dot.camp{background:#7ee081}.cal-dot.copa{background:var(--amarelo)}.cal-dot.cont{background:var(--azul)}
+/* mobile */
+@media(max-width:560px){
+  main{padding:12px}
+  h2{font-size:20px}
+  header{flex-wrap:wrap;gap:8px 14px;padding:10px 14px}
+  header .stats{margin-left:0;flex:1 1 100%;justify-content:space-between;gap:8px;text-align:left}
+  header .stats .num{font-size:18px}
+  nav{padding:0 8px}
+  nav button{padding:8px 10px;font-size:14px}
+  .menu{margin:24px auto}
+  .menu h1{font-size:38px}
+  .placar{padding:10px 12px}
+  .placar .linha1{font-size:11px}
+  .placar .tempo{width:80px}
+  .placar .time{font-size:16px;gap:6px}
+  .placar .gols{font-size:28px;min-width:76px;padding:2px 8px}
+  .jog{width:54px}
+  .jog .cam{width:26px;height:26px;font-size:11px}
+  .jog .nome{font-size:9px}
+  .cal-grid{grid-template-columns:repeat(2,1fr)}
+}
 </style>
 </head>
 <body>
@@ -786,7 +807,7 @@ function telaFinancas(){
   <table><tr><th>Setor</th><th class="r">Lugares</th><th class="r">Preço</th><th class="r">Ocupação (último jogo)</th><th></th></tr>
   ${Object.entries(Motor.SETORES_ESTADIO).map(([k,info])=>{const s=m.setores[k],inc=Math.max(100,Math.round(s.lugares*.12/100)*100),custo=inc*900;
     return `<tr><td>${info.nome}</td><td class="r num">${s.lugares.toLocaleString('pt-BR')}</td>
-    <td class="r"><input type="number" min="${Math.round(info.precoBase*.5)}" max="${Math.round(info.precoBase*3)}" step="5" value="${s.preco}" style="width:70px;text-align:right" onchange="ajustarPrecoSetor('${k}',this.value)"> <span class="muted" style="font-size:11px">(ref. ${fmt(info.precoBase)})</span></td>
+    <td class="r"><input type="number" min="${Math.round(info.precoBase*.5)}" max="${Math.round(info.precoBase*3)}" step="5" value="${s.preco}" style="width:70px;text-align:right" onchange="ajustarPrecoSetor('${k}',this.value)"> <span class="muted" style="font-size:11px">(ref. R$ ${info.precoBase})</span></td>
     <td class="r num">${Math.round(s.ocupacao*100)}%</td>
     <td><button onclick="reformarSetor('${k}')">Ampliar +${inc.toLocaleString('pt-BR')} (${fmt(custo)})</button></td></tr>`;}).join('')}
   </table></div>
