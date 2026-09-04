@@ -278,6 +278,11 @@ function telaEntrar(){
 function classeForca(f){return f>=82?'f4':f>=72?'f3':f>=60?'f2':'f1';}
 function estrelaTag(f){return f>=90?' <span title="Craque de nível mundial">⭐</span>':'';}
 function linhaTime(id){const t=state.times[id];return `<span class="cor" style="background:${t.cor1}"></span>${esc(t.nome)}`;}
+function ultimaRodadaTodasSeries(m){
+  if(state.rodada<=0)return'';
+  const bloco=d=>`<div class="painel"><h3>Série ${d} — rodada ${state.rodada}</h3><table class="jogos">${state.calendario[m.conf][d][state.rodada-1].map(g=>`<tr class="${g.casa===m.id||g.fora===m.id?'eu':''}"><td class="r">${linhaTime(g.casa)}</td><td class="plc">${g.gc} x ${g.gf}</td><td>${linhaTime(g.fora)}</td><td class="muted" style="font-size:11px">${g.eventos.filter(e=>e.tipo==='gol').map(e=>e.min+"'").join(' ')}</td></tr>`).join('')}</table></div>`;
+  return `<div class="grid g2" style="margin-top:18px">${bloco('A')}${bloco('B')}${bloco('C')}${bloco('D')}</div>`;
+}
 function telaInicio(){
   const m=meu(),r=rodadaAtual();
   const prox=state.fimTemporada?null:[r.A,r.B,r.C,r.D].flat().find(g=>g.casa===m.id||g.fora===m.id);
@@ -296,7 +301,7 @@ function telaInicio(){
       ${fora?`<div class="aviso">${fora} jogador(es) fora de posição na escalação. Ajuste em Escalação.</div>`:''}
       </div>`:`<div class="ok">Campeonato encerrado.</div>`}
     ${!emAndamento&&!pm&&!state.fimTemporada?telaLobby(m):''}
-    <div class="painel" style="margin-top:18px"><h3>Notícias</h3><div class="noticias">${state.noticias.map(n=>`<div><small>T${n.t} R${n.r}</small>${esc(n.txt)}</div>`).join('')||'<div class="muted">Nada ainda.</div>'}</div></div>
+    ${ultimaRodadaTodasSeries(m)}
   </div><div>
     <div class="painel"><h3>${CONF_NOME[m.conf]} — Série ${m.div} — topo</h3><table>${tab.map((l,i)=>`<tr class="${l.id===m.id?'eu':''}"><td class="num">${i+1}</td><td>${linhaTime(l.id)}</td><td class="r num">${l.pts}</td></tr>`).join('')}</table>
     <button style="margin-top:8px" onclick="ui.tela='tabela';render()">Ver tabela completa</button></div>

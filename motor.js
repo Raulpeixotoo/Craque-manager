@@ -548,8 +548,7 @@ function treinar(state,clubeId,tipo){
     if(Math.random()<.03*(1-m.staff.fisico*.2)){const cands=m.jogadores.map(id=>J(state,id)).filter(j=>!j.lesao);
       if(cands.length){const j=pick(cands);const dur=rnd(3,10);j.lesao=dur;j.lesaoTipo=pick(['muscular','torção no tornozelo','pancada no joelho','desgaste físico']);
         j.lesoesTotal=(j.lesoesTotal||0)+1;if(j.lesoesTotal>=3&&!j.fragil){j.fragil=true;j.valor=Math.round(j.valor*.85/1e4)*1e4;}
-        if(m.titulares.includes(j.id))autoEscalar(state,m);
-        noticia(state,j.nome+' sofreu uma lesão '+j.lesaoTipo+' no treino de '+TREINOS[tipo].toLowerCase()+' ('+dur+' dias).');}}
+        if(m.titulares.includes(j.id))autoEscalar(state,m);}}
   }
 }
 function eventoVestiario(state){
