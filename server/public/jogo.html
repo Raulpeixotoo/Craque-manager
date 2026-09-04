@@ -259,9 +259,9 @@ function telaInicio(){
   const fora=m.titulares.filter((id,i)=>J(id).pos!==FORMACOES[m.formacao][i]).length;
   const ehClassicoProx=prox&&state.rivalId!=null&&(prox.casa===state.rivalId||prox.fora===state.rivalId);
   const emAndamento=state.rodadaEstado.status==='em_andamento';
-  const minhaPartidaAoVivo=emAndamento&&prox?partidasAoVivo.find(p=>p.casaId===prox.casa&&p.foraId===prox.fora):null;
+  const pm=pmAtual();
   return `${painelPedido()}${painelOferta()}<div class="grid g3"><div>
-    ${minhaPartidaAoVivo?telaPartidaAoVivo(minhaPartidaAoVivo)
+    ${pm?telaPartidaAoVivo(pm)
       :emAndamento?'<div class="painel"><h3>Rodada rolando</h3><p class="aviso">Aguardando as partidas ao vivo da rodada terminarem para fechar o seu resultado...</p></div>'
       :prox?`<div class="painel"><h3>Próximo jogo — rodada ${state.rodada+1}</h3>
       ${ehClassicoProx?'<div style="text-align:center;color:var(--amarelo);font-family:var(--fd);font-weight:700;font-size:16px;margin-top:6px">🔥 CLÁSSICO</div>':''}
@@ -269,7 +269,7 @@ function telaInicio(){
       <div class="muted" style="text-align:center">${prox.casa===m.id?'Em casa':'Fora de casa'} · adversário na ${posicao(prox.casa===m.id?prox.fora:prox.casa)}ª posição</div></div>
       ${fora?`<div class="aviso">${fora} jogador(es) fora de posição na escalação. Ajuste em Escalação.</div>`:''}
       </div>`:`<div class="ok">Campeonato encerrado.</div>`}
-    ${!emAndamento&&!state.fimTemporada?telaLobby(m):''}
+    ${!emAndamento&&!pm&&!state.fimTemporada?telaLobby(m):''}
     <div class="painel" style="margin-top:18px"><h3>Notícias</h3><div class="noticias">${state.noticias.map(n=>`<div><small>T${n.t} R${n.r}</small>${esc(n.txt)}</div>`).join('')||'<div class="muted">Nada ainda.</div>'}</div></div>
   </div><div>
     <div class="painel"><h3>${CONF_NOME[m.conf]} — Série ${m.div} — topo</h3><table>${tab.map((l,i)=>`<tr class="${l.id===m.id?'eu':''}"><td class="num">${i+1}</td><td>${linhaTime(l.id)}</td><td class="r num">${l.pts}</td></tr>`).join('')}</table>
@@ -279,19 +279,73 @@ function telaInicio(){
     ${state.titulos.length?`<div class="painel" style="margin-top:18px"><h3>Títulos</h3>${state.titulos.map(t=>`<div>🏆 ${t}</div>`).join('')}</div>`:''}
   </div></div>`;
 }
+/* Congela a última partida ao vivo do meu clube assim que ela termina, até eu clicar
+   "Continuar" — o servidor já seguiu em frente (fecha a rodada assim que TODA partida ao
+   vivo termina, igual o solo sempre fez), mas a tela só troca quando eu confirmar, pra dar
+   tempo de ver o resultado final — mesmo fluxo do jogo solo. */
+let verMinhaPartidaAteContinuar=null;
+function pmAtual(){
+  if(verMinhaPartidaAteContinuar)return verMinhaPartidaAteContinuar;
+  const m=meu();
+  const minha=partidasAoVivo.find(p=>p.casaId===m.id||p.foraId===m.id);
+  // se ja tinha visto o fim (e dispensei), não volta a mostrar sozinho — só se ainda tiver
+  // rolando de verdade. Enquanto isso, a rodada pode estar esperando outra partida acabar.
+  return (minha&&!minha.fim)?minha:null;
+}
+function continuarAposPartida(){verMinhaPartidaAteContinuar=null;render();}
+function acaoPartida(tipo,params){socket.emit(tipo,{clubeId:meu().id,...(params||{})});}
+function pausarPartida(){acaoPartida('partidaPausar');}
+function retomarPartida(){acaoPartida('partidaRetomar');}
+function liberarSemSubstituir(){acaoPartida('partidaLiberarSemSubstituir');}
+function mudarEstiloPartida(e){acaoPartida('partidaMudarEstilo',{estilo:e});}
+function clicarPartida(id){
+  const pm=pmAtual();if(!pm||!pm.pausado)return;
+  if(ui.sel===null||ui.sel===id){ui.sel=ui.sel===id?null:id;render();return;}
+  const a=ui.sel,b=id;
+  ui.sel=null;
+  acaoPartida('partidaSubstituir',{a,b});
+}
+function jogadorForcado(){
+  const pm=pmAtual(),m=meu(),sf=pm&&pm.subForcada&&pm.subForcada[m.id];
+  return sf&&m.titulares.includes(sf)?J(sf):null;
+}
+function painelSubstituicao(m,pm){
+  const banco=m.jogadores.map(J).filter(j=>!m.titulares.includes(j.id)&&!j.suspenso&&!j.lesao&&!j.selecao).sort((a,b)=>b.forca-a.forca);
+  const linha=j=>`<tr class="clic ${ui.sel===j.id?'sel':''}" onclick="clicarPartida(${j.id})"><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td></tr>`;
+  const forcado=jogadorForcado();
+  const usadas=(pm.subsUsadas&&pm.subsUsadas[m.id])||0;
+  return `<div class="painel" style="margin:12px 0;${forcado?'border-color:var(--vermelho)':''}">
+  ${forcado?`<div class="aviso">🚑 Substituição obrigatória: <b>${esc(forcado.nome)}</b> está lesionado e precisa sair.${banco.length?'':' Não há ninguém disponível no banco — o time vai jogar com um a menos.'}</div>`:''}
+  <h3>Substituições — ${5-usadas} restantes</h3>
+  <div class="grid g2"><div><p class="muted" style="margin:0 0 4px">Em campo</p><table>${m.titulares.map(id=>linha(J(id))).join('')}</table></div>
+  <div><p class="muted" style="margin:0 0 4px">Banco</p><table>${banco.map(linha).join('')||'<tr><td class="muted">Sem opções no banco.</td></tr>'}</table></div></div>
+  <p class="muted" style="margin-top:6px">Clique num titular e depois num jogador do banco para substituir, ou em dois titulares para trocar posições.</p>
+  ${forcado&&!banco.length?`<button style="margin-top:8px" onclick="liberarSemSubstituir()">Continuar com o time reduzido</button>`:''}
+  </div>`;
+}
 function telaPartidaAoVivo(pm){
   const H=state.times[pm.casaId],A=state.times[pm.foraId];
+  const m=meu();
   const osDoisHumanos=H.controlador&&A.controlador;
+  const intervalo=!pm.fim&&pm.pausado&&pm.intervaloFeito&&pm.min<=45;
+  const forcado=jogadorForcado();
   const stat=(n,a,b)=>{const t=a+b||1;return `<div class="stat"><span class="num r" style="text-align:right">${Math.round(a)}</span><div class="bar"><i style="width:${a/t*100}%"></i><i style="width:${b/t*100}%"></i></div><span class="num">${Math.round(b)}</span><span></span><span class="muted" style="text-align:center">${n}</span></div>`;};
   return `<div class="placar">
     <div style="text-align:center;color:var(--vermelho);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🔴 AO VIVO${osDoisHumanos?' — humano x humano':''}</div>
+    ${intervalo?'<div class="ok" style="text-align:center;font-family:var(--fd);font-weight:700;font-size:16px">⏱ INTERVALO — aproveite pra mexer no time</div>':''}
     <div class="linha1"><span>${pm.min<=45?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${pm.min/90*100}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${pm.min}'</span></div>
     <div class="linha2"><div class="time">${linhaTime(H.id)}</div><div class="gols">${pm.gc} x ${pm.gf}</div><div class="time d">${linhaTime(A.id)}</div></div>
+    ${pm.fim?'':`<div class="taticas" style="margin:0 0 10px"><label>Instrução tática <select onchange="mudarEstiloPartida(this.value)">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label></div>`}
     <div class="grid g2" style="gap:18px"><div>
       ${stat('posse de bola',pm.posse,100-pm.posse)}${stat('finalizações',pm.fc,pm.ff)}
       ${stat('cartões',pm.eventos.filter(e=>e.lado==='c'&&e.tipo!=='gol').length,pm.eventos.filter(e=>e.lado==='f'&&e.tipo!=='gol').length)}
     </div><div class="eventos">${pm.eventos.slice().reverse().map(e=>`<div><b class="num">${e.min}'</b> ${e.tipo==='gol'?'⚽':e.tipo==='vermelho'?'🟥':e.tipo==='amarelo'?'🟨':e.tipo==='lesao'?'🚑':e.tipo==='penalti_perdido'||e.tipo==='falta_perdida'?'❌':''} ${esc(e.txt)}</div>`).join('')||'<div class="muted">Bola rolando...</div>'}</div></div>
-  </div>`;
+  </div>
+  <div class="controles">${pm.fim?`<button class="primario" onclick="continuarAposPartida()">Continuar</button>`:
+    forcado?`<button disabled title="Faça a substituição obrigatória primeiro">🚑 Substituição obrigatória</button>`:
+    `<button onclick="${pm.pausado?'retomarPartida()':'pausarPartida()'}">${pm.pausado?(intervalo?'▶ Iniciar 2º tempo':'▶ Continuar'):'⏸ Pausar e substituir'}</button>`}</div>
+  ${!pm.fim&&pm.pausado?`<p class="muted" style="margin:-8px 0 8px">Se ninguém mexer, a partida volta a rolar sozinha em pouco menos de 1 minuto.</p>`:''}
+  ${!pm.fim&&pm.pausado?painelSubstituicao(m,pm):''}`;
 }
 function telaLobby(m){
   const humanos=state.times.filter(t=>t.controlador);
@@ -557,7 +611,15 @@ function avancarTemporada(){
 /* ============ MULTIPLAYER: conexão ============ */
 const socket=io();
 socket.on('mundo',m=>{state=m;if(state.rodadaEstado.status==='lobby')partidasAoVivo=[];render();});
-socket.on('partidasAoVivo',lista=>{partidasAoVivo=lista;render();});
+socket.on('partidasAoVivo',lista=>{
+  partidasAoVivo=lista;
+  const m=meu();
+  if(m){
+    const minha=lista.find(p=>p.casaId===m.id||p.foraId===m.id);
+    if(minha)verMinhaPartidaAteContinuar=minha.fim?minha:null;
+  }
+  render();
+});
 socket.on('erro',msg=>{erro=msg;render();});
 socket.on('connect_error',()=>{document.getElementById('app').innerHTML='<main><p>Não consegui conectar ao servidor.</p></main>';});
 setInterval(()=>{

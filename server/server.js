@@ -104,7 +104,12 @@ let tickHandle = null;
 let naoProntosDaRodada = [];
 
 function resumoPartida(p) {
-  return { casaId: p.g.casa, foraId: p.g.fora, min: p.min, gc: p.gc, gf: p.gf, fc: p.fc, ff: p.ff, posse: p.posse, eventos: p.eventos, fim: p.fim };
+  return {
+    casaId: p.g.casa, foraId: p.g.fora, min: p.min, gc: p.gc, gf: p.gf, fc: p.fc, ff: p.ff,
+    posse: p.posse, eventos: p.eventos, fim: p.fim,
+    pausado: p.pausado, pausadoEm: p.pausadoEm, intervaloFeito: p.intervaloFeito,
+    subsUsadas: p.subsUsadas, subForcada: p.subForcada,
+  };
 }
 
 // Acha os confrontos da rodada onde PELO MENOS UM lado é controlado por um humano e cria
@@ -112,13 +117,17 @@ function resumoPartida(p) {
 // Antes só virava "ao vivo" quando os dois lados eram humanos; times de IA resolviam na
 // hora sem transmitir nada, o que ficava estranho pra quem só quer ver o próprio jogo
 // rolando bola. Agora todo humano vê a própria partida ao vivo, seja o adversário quem for.
+// subsUsadas/subForcada são por clube (chave = id do time) — cada lado tem seu próprio
+// limite de 5 substituições e sua própria pausa obrigatória por lesão, igual ao solo.
 function iniciarPartidasAoVivo() {
   const jogos = [];
   Motor.CONFEDERACOES.forEach(conf => {
     Object.keys(mundo.calendario[conf]).forEach(div => {
       mundo.calendario[conf][div][mundo.rodada].forEach(g => {
         if (g.gc === null && (mundo.times[g.casa].controlador || mundo.times[g.fora].controlador)) {
-          jogos.push(Motor.criarPartida(mundo, g));
+          const p = Motor.criarPartida(mundo, g);
+          p.pausado = false; p.intervaloFeito = false; p.subsUsadas = {}; p.subForcada = {};
+          jogos.push(p);
         }
       });
     });
@@ -126,8 +135,37 @@ function iniciarPartidasAoVivo() {
   return jogos;
 }
 
+// Acha a partida ao vivo de um clube específico (ou undefined se ele não tem nenhuma agora).
+function partidaDoClube(clubeId) {
+  return partidasAoVivo && partidasAoVivo.find(p => p.g.casa === clubeId || p.g.fora === clubeId);
+}
+
+// Se uma partida fica pausada (intervalo, lesão, ou pausa manual) por tempo demais sem
+// ninguém resolver — desconectou, foi no banheiro, esqueceu — ela destrava sozinha, senão
+// a rodada (e o mundo inteiro, já que todo mundo espera a mesma rodada fechar) trava pra
+// sempre. Mesma filosofia do timeout do lobby, só que bem mais curto.
+const PAUSA_TIMEOUT_MS = 45 * 1000;
+function pausar(p) { p.pausado = true; p.pausadoEm = Date.now(); }
+
 function tickPartidasAoVivo() {
-  partidasAoVivo.forEach(p => { if (!p.fim) Motor.minuto(mundo, p); });
+  const agora = Date.now();
+  partidasAoVivo.forEach(p => {
+    if (p.fim) return;
+    if (p.pausado) {
+      if (agora - (p.pausadoEm || agora) < PAUSA_TIMEOUT_MS) return;
+      p.pausado = false;
+      [p.g.casa, p.g.fora].forEach(id => { p.subForcada[id] = null; });
+    }
+    Motor.minuto(mundo, p);
+    // lesão em time humano pausa a partida pra esse lado pedir substituição — igual ao solo,
+    // só que agora por lado, já que os dois times de uma partida podem ser humanos.
+    [[p.g.casa, mundo.times[p.g.casa]], [p.g.fora, mundo.times[p.g.fora]]].forEach(([timeId, time]) => {
+      if (!time.controlador || p.subForcada[timeId]) return;
+      const lesionado = time.titulares.map(id => Motor.J(mundo, id)).find(j => j.lesao > 0);
+      if (lesionado) { p.subForcada[timeId] = lesionado.id; pausar(p); }
+    });
+    if (p.min === 45 && !p.intervaloFeito) { p.intervaloFeito = true; pausar(p); }
+  });
   io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
   if (partidasAoVivo.every(p => p.fim)) {
     clearInterval(tickHandle);
@@ -253,6 +291,38 @@ function escalarTrocar(clube, a, b) {
     clube.titulares[ib] = a; return;
   }
 }
+
+// Troca/substituição DURANTE uma partida ao vivo — mesma regra do solo (clicarPartida),
+// só que agora "sai/entra" e o limite de 5 subs são por clube (subsUsadas[clube.id]),
+// já que os dois lados de uma partida podem ser humanos com suas próprias trocas.
+function clicarPartida(clube, p, a, b) {
+  const J = id => Motor.J(mundo, id);
+  const ia = clube.titulares.indexOf(a), ib = clube.titulares.indexOf(b);
+  if (ia >= 0 && ib >= 0) {
+    if (J(a).suspenso || J(b).suspenso) throw new Error('Jogador expulso não pode trocar de posição — o time joga com um a menos.');
+    clube.titulares[ia] = b; clube.titulares[ib] = a;
+  } else if (ia >= 0 || ib >= 0) {
+    const entra = ia >= 0 ? b : a, sai = ia >= 0 ? a : b;
+    if (J(sai).suspenso) throw new Error('Jogador expulso não pode ser substituído — o time joga com um a menos.');
+    if (J(entra).suspenso || J(entra).lesao || J(entra).selecao) throw new Error('Jogador indisponível.');
+    if ((p.subsUsadas[clube.id] || 0) >= 5) throw new Error('Limite de 5 substituições atingido.');
+    if (ia >= 0) clube.titulares[ia] = b; else clube.titulares[ib] = a;
+    p.subsUsadas[clube.id] = (p.subsUsadas[clube.id] || 0) + 1;
+    Motor.noticia(mundo, 'Substituição: ' + J(entra).nome + ' entra no lugar de ' + J(sai).nome + ' (' + clube.nome + ').');
+    if (p.subForcada[clube.id] === sai) p.subForcada[clube.id] = null;
+  } else {
+    return; // nem a nem b sao titulares desse clube -- nada a fazer
+  }
+  const mandante = p.g.casa === clube.id;
+  if (mandante) p.H = Motor.forcaTime(mundo, clube, true); else p.A = Motor.forcaTime(mundo, clube, false);
+}
+
+function mudarEstiloPartida(clube, p, estilo) {
+  clube.estilo = estilo;
+  const mandante = p.g.casa === clube.id;
+  if (mandante) p.H = Motor.forcaTime(mundo, clube, true); else p.A = Motor.forcaTime(mundo, clube, false);
+}
+
 const ACOES = {
   mudarFormacao: (clube, p) => { clube.formacao = p.formacao; Motor.autoEscalar(mundo, clube); },
   mudarEstilo: (clube, p) => { clube.estilo = p.estilo; },
@@ -393,6 +463,55 @@ io.on('connection', socket => {
     } catch (e) {
       socket.emit('erro', e.message);
     }
+  });
+
+  // Controles de partida ao vivo — pausar/retomar/substituir/mudar estilo, igual ao solo,
+  // só que cada humano controla só o próprio lado (o outro pode ser IA ou outro humano).
+  socket.on('partidaPausar', ({ clubeId }) => {
+    const p = partidaDoClube(clubeId);
+    if (!p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
+    pausar(p);
+    io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+  });
+
+  socket.on('partidaRetomar', ({ clubeId }) => {
+    const p = partidaDoClube(clubeId);
+    if (!p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
+    if (p.subForcada[clubeId]) { socket.emit('erro', 'Resolva a substituição obrigatória antes de continuar.'); return; }
+    p.pausado = false;
+    io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+  });
+
+  socket.on('partidaSubstituir', ({ clubeId, a, b }) => {
+    const clube = mundo.times[clubeId];
+    const p = partidaDoClube(clubeId);
+    if (!clube || !p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
+    if (!p.pausado) { socket.emit('erro', 'Pause a partida antes de mexer no time.'); return; }
+    try {
+      clicarPartida(clube, p, a, b);
+      salvar();
+      io.emit('mundo', mundo);
+      io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+    } catch (e) {
+      socket.emit('erro', e.message);
+    }
+  });
+
+  socket.on('partidaLiberarSemSubstituir', ({ clubeId }) => {
+    const p = partidaDoClube(clubeId);
+    if (!p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
+    p.subForcada[clubeId] = null;
+    io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+  });
+
+  socket.on('partidaMudarEstilo', ({ clubeId, estilo }) => {
+    const clube = mundo.times[clubeId];
+    const p = partidaDoClube(clubeId);
+    if (!clube || !p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
+    mudarEstiloPartida(clube, p, estilo);
+    salvar();
+    io.emit('mundo', mundo);
+    io.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
   });
 
   socket.on('disconnect', () => console.log('Cliente desconectado:', socket.id));

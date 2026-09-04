@@ -489,7 +489,6 @@ function treinar(state,clubeId,tipo){
   if(tipo==='folga'){
     m.jogadores.map(id=>J(state,id)).forEach(j=>{j.moral=clamp(j.moral+rnd(1,3),0,100);if(j.lesao>0)j.lesao=Math.max(0,j.lesao-2);});
     m.moral=clamp(m.moral+1,0,100);
-    noticia(state,'Dia de folga: o elenco descansou e recuperou moral.');
   }else{
     m.jogadores.map(id=>J(state,id)).forEach(j=>{if(j.lesao>0)j.lesao=Math.max(0,j.lesao-1);});
     m.treino[tipo]=clamp((m.treino[tipo]||0)+8,0,40);
@@ -498,7 +497,6 @@ function treinar(state,clubeId,tipo){
         j.lesoesTotal=(j.lesoesTotal||0)+1;if(j.lesoesTotal>=3&&!j.fragil){j.fragil=true;j.valor=Math.round(j.valor*.85/1e4)*1e4;}
         if(m.titulares.includes(j.id))autoEscalar(state,m);
         noticia(state,j.nome+' sofreu uma lesão '+j.lesaoTipo+' no treino de '+TREINOS[tipo].toLowerCase()+' ('+dur+' dias).');}}
-    noticia(state,'Treino de '+TREINOS[tipo].toLowerCase()+' realizado.');
   }
 }
 function eventoVestiario(state){
