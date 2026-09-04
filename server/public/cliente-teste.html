@@ -30,6 +30,11 @@ button.primario{background:var(--amarelo);color:#1a1400;border-color:var(--amare
 .noticias small{color:var(--muted);margin-right:8px}
 .placar{font-size:20px;font-weight:700;text-align:center;margin:8px 0}
 .erro{background:rgba(224,83,63,.15);border:1px solid var(--vermelho);padding:8px 12px;border-radius:4px;margin-bottom:12px}
+.aovivo{border-color:var(--amarelo)}
+.aovivo .min{color:var(--amarelo);font-weight:700}
+.eventos{max-height:220px;overflow:auto;margin-top:10px}
+.eventos div{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
+.eventos small{color:var(--muted);margin-right:8px}
 </style>
 </head>
 <body>
@@ -40,6 +45,7 @@ const socket = io();
 let mundo = null;
 let erro = null;
 let confSel = null, divSel = null;
+let partidasAoVivo = [];
 
 const KEY_APELIDO = 'craque_manager_apelido_teste';
 
@@ -102,9 +108,9 @@ function telaEntrar() {
 
 function telaPrincipal(meu) {
   const jogo = mundo.calendario[meu.conf][meu.div][mundo.rodada]?.find(g => g.casa===meu.id || g.fora===meu.id);
-  const casa = jogo && jogo.casa === meu.id;
-  const adversario = jogo ? mundo.times[casa ? jogo.fora : jogo.casa] : null;
   const jogado = jogo && jogo.gc !== null;
+  const emAndamento = mundo.rodadaEstado.status === 'em_andamento';
+  const minhaPartida = emAndamento && jogo ? partidasAoVivo.find(p => p.casaId === jogo.casa && p.foraId === jogo.fora) : null;
   const outrosNoClube = mundo.times.filter(t => t.controlador).length;
   return `
     <h1>${meu.nome}</h1>
@@ -114,14 +120,26 @@ function telaPrincipal(meu) {
       <h2>Temporada ${mundo.temporada} — rodada ${Math.min(mundo.rodada+1, mundo.calendario[meu.conf][meu.div].length)}/${mundo.calendario[meu.conf][meu.div].length}</h2>
       ${mundo.fimTemporada
         ? '<p>Temporada encerrada — a próxima ainda não pode ser iniciada por este cliente de teste.</p>'
+        : minhaPartida ? telaPartidaAoVivo(minhaPartida)
+        : emAndamento ? '<p class="aviso">Rodada rolando — aguardando as partidas ao vivo terminarem para fechar o resultado do seu jogo...</p>'
         : jogo
           ? `<div class="placar">${mundo.times[jogo.casa].nome} ${jogado?jogo.gc:'-'} x ${jogado?jogo.gf:'-'} ${mundo.times[jogo.fora].nome}</div>`
           : '<p>Sem jogo encontrado pra essa rodada (raro — confira o calendário).'}
     </div>
-    ${!mundo.fimTemporada ? telaLobby(meu) : ''}
+    ${!mundo.fimTemporada && !emAndamento ? telaLobby(meu) : ''}
     <div class="painel">
       <h2>Notícias</h2>
       <div class="noticias">${mundo.noticias.slice(0,15).map(n => `<div><small>T${n.t} R${n.r}</small>${n.txt}</div>`).join('') || '<p class="aviso">Nada ainda.</p>'}</div>
+    </div>`;
+}
+
+function telaPartidaAoVivo(p) {
+  const H = mundo.times[p.casaId], A = mundo.times[p.foraId];
+  return `
+    <div class="aovivo" style="border:1px solid var(--linha);border-radius:6px;padding:10px">
+      <p class="aviso" style="margin:0">🔴 AO VIVO — humano x humano</p>
+      <div class="placar">${H.nome} ${p.gc} x ${p.gf} ${A.nome} <span class="min">— ${p.min}'</span></div>
+      <div class="eventos">${p.eventos.slice().reverse().map(e => `<div><small>${e.min}'</small>${e.txt}</div>`).join('') || '<div class="aviso">Bola rolando...</div>'}</div>
     </div>`;
 }
 
@@ -155,7 +173,8 @@ function render() {
   erro = null;
 }
 
-socket.on('mundo', m => { mundo = m; render(); });
+socket.on('mundo', m => { mundo = m; if (mundo.rodadaEstado.status === 'lobby') partidasAoVivo = []; render(); });
+socket.on('partidasAoVivo', lista => { partidasAoVivo = lista; render(); });
 socket.on('erro', msg => { erro = msg; render(); });
 socket.on('connect_error', () => { document.getElementById('app').innerHTML = '<main><p>Não consegui conectar ao servidor.</p></main>'; });
 
