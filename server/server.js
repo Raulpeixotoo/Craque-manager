@@ -153,11 +153,38 @@ function resolverRodadaAgora() {
   }
 }
 
+// Motor.concluirRodada() só noticia o jogo de "meuTime" (o time de referência) — no
+// solo só existe um time humano, então faz sentido; aqui pode ter vários, e cada um
+// merece ver o resultado do próprio jogo na notícia, não só quem virou referência.
+function jogoNaRodada(t, rodada) {
+  return mundo.calendario[t.conf][t.div][rodada].find(g => g.casa === t.id || g.fora === t.id);
+}
+function noticiarPartidasDosHumanos(rodadaJogada) {
+  const jaNoticiado = new Set();
+  const jogoRef = jogoNaRodada(mundo.times[mundo.meuTime], rodadaJogada);
+  jaNoticiado.add(jogoRef.casa + '-' + jogoRef.fora); // esse já foi noticiado pelo Motor.concluirRodada
+  timesHumanos().forEach(t => {
+    if (t.id === mundo.meuTime) return; // esse já foi noticiado pelo Motor.concluirRodada
+    const jogo = jogoNaRodada(t, rodadaJogada);
+    const chave = jogo.casa + '-' + jogo.fora;
+    if (jaNoticiado.has(chave)) return; // evita duplicar quando os dois lados são humanos
+    jaNoticiado.add(chave);
+    const H = mundo.times[jogo.casa], A = mundo.times[jogo.fora];
+    const comExpulsao = jogo.eventos.some(e => e.tipo === 'vermelho');
+    Motor.noticia(mundo, H.nome + ' ' + jogo.gc + ' x ' + jogo.gf + ' ' + A.nome + (comExpulsao ? ' (com expulsão)' : ''));
+  });
+}
+
 // Chamada depois que toda partida ao vivo (se houve alguma) já terminou — resolve o
 // resto do mundo e reabre o lobby pra próxima rodada.
 function finalizarRodada() {
+  const rodadaJogada = mundo.rodada;
   simularRodadaCompleta();
-  Motor.concluirRodada(mundo);
+  Motor.concluirRodada(mundo); // aqui dentro mundo.rodada já avança pra próxima
+  const rodadaSeguinte = mundo.rodada;
+  mundo.rodada = rodadaJogada; // Motor.noticia() rotula com mundo.rodada — volta pro valor certo
+  noticiarPartidasDosHumanos(rodadaJogada);
+  mundo.rodada = rodadaSeguinte;
   if (naoProntosDaRodada.length) {
     Motor.noticia(mundo, 'Rodada iniciada sem confirmação de: ' + naoProntosDaRodada.map(t => t.nome).join(', ') + '.');
   }
