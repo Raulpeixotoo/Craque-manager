@@ -38,7 +38,14 @@ function rodadaEstadoPadrao() {
 function carregarOuCriarMundo() {
   if (fs.existsSync(ARQUIVO_MUNDO)) {
     const mundo = JSON.parse(fs.readFileSync(ARQUIVO_MUNDO, 'utf8'));
-    mundo.times.forEach(t => { if (t.controlador === undefined) t.controlador = null; if (t.pontosTreino === undefined) t.pontosTreino = TREINO_PONTOS_POR_RODADA; if (t.ofertaHumana === undefined) t.ofertaHumana = null; });
+    mundo.times.forEach(t => {
+      if (t.controlador === undefined) t.controlador = null;
+      if (t.pontosTreino === undefined) t.pontosTreino = TREINO_PONTOS_POR_RODADA;
+      if (t.ofertaHumana === undefined) t.ofertaHumana = null;
+      if (!t.setores) t.setores = Motor.criarSetoresIniciais(t.capacidade);
+      if (!t.socios) t.socios = { ativos: Math.round(t.torcida * .1), mensalidade: 40 };
+      if (t.patrocinioContrato === undefined) t.patrocinioContrato = t.patrocinio > 0 ? { empresa: Motor.pick(Motor.EMPRESAS_PATROCINIO), duracaoRestante: Motor.rnd(1, 3) } : null;
+    });
     if (!mundo.rodadaEstado || mundo.rodadaEstado.status !== 'lobby') {
       // Se o servidor caiu no meio de uma rodada ao vivo, as partidas em memória se
       // perdem — mas os jogos que ainda não têm placar continuam com gc:null no
@@ -351,15 +358,28 @@ const ACOES = {
     clube.caixa -= custo; j.contrato += anos; j.salario = Math.round(j.salario * 1.1 / 1000) * 1000; j.moral = Motor.clamp(j.moral + 10, 0, 100);
     Motor.noticia(mundo, 'Contrato de ' + j.nome + ' renovado por ' + anos + ' anos (' + clube.nome + ').');
   },
-  reformarEstadio: clube => {
-    const inc = Math.round(clube.capacidade * .12 / 500) * 500, custo = inc * 900;
+  reformarSetor: (clube, p) => {
+    const info = Motor.SETORES_ESTADIO[p.setor], s = clube.setores[p.setor];
+    if (!info || !s) throw new Error('Setor inválido.');
+    const inc = Math.max(100, Math.round(s.lugares * .12 / 100) * 100), custo = inc * 900;
     if (clube.caixa < custo) throw new Error('Caixa insuficiente para a reforma.');
-    clube.caixa -= custo; clube.capacidade += inc;
-    Motor.noticia(mundo, clube.nome + ': estádio reformado, capacidade agora é ' + clube.capacidade.toLocaleString('pt-BR') + ' lugares.');
+    clube.caixa -= custo; s.lugares += inc; Motor.recalcularCapacidade(clube);
+    Motor.noticia(mundo, clube.nome + ': setor ' + info.nome + ' ampliado, agora ' + s.lugares.toLocaleString('pt-BR') + ' lugares.');
   },
-  buscarPatrocinio: (clube, p) => {
-    clube.patrocinio = p.oferta;
-    Motor.noticia(mundo, clube.nome + ' fechou novo patrocínio: ' + Motor.fmt(p.oferta) + ' por rodada.');
+  ajustarPrecoSetor: (clube, p) => {
+    const info = Motor.SETORES_ESTADIO[p.setor], s = clube.setores[p.setor];
+    if (!info || !s) throw new Error('Setor inválido.');
+    const min = Math.round(info.precoBase * .5), max = Math.round(info.precoBase * 3);
+    s.preco = Motor.clamp(Math.round(Number(p.preco) || 0), min, max);
+  },
+  ajustarMensalidadeSocios: (clube, p) => {
+    clube.socios.mensalidade = Motor.clamp(Math.round(Number(p.valor) || 0), 10, 150);
+  },
+  buscarPatrocinio: clube => {
+    const oferta = Math.round((clube.torcida * .6 + Motor.rnd(5000, 20000)) / 1000) * 1000;
+    const empresa = Motor.pick(Motor.EMPRESAS_PATROCINIO), duracao = Motor.rnd(2, 4);
+    clube.patrocinio = oferta; clube.patrocinioContrato = { empresa, duracaoRestante: duracao };
+    Motor.noticia(mundo, clube.nome + ' fechou novo patrocínio com ' + empresa + ': ' + Motor.fmt(oferta) + ' por rodada, por ' + duracao + ' temporada(s).');
   },
   investirBase: clube => {
     if (clube.baseNivel >= 3) throw new Error('Nível máximo já investido.');

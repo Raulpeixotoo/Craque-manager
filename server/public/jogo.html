@@ -591,16 +591,19 @@ function painelVenda(){
   <tr><td>Você recebe</td><td class="r">${fmt(v.preco)}</td></tr></table>
   <button class="primario" onclick="confirmarVenda()">Confirmar venda</button> <button onclick="cancelarVenda()">Cancelar</button></div>`;
 }
-function reformarEstadio(){
-  const m=meu(),inc=Math.round(m.capacidade*.12/500)*500,custo=inc*900;
+function reformarSetor(setor){
+  const m=meu(),info=Motor.SETORES_ESTADIO[setor],s=m.setores[setor];
+  const inc=Math.max(100,Math.round(s.lugares*.12/100)*100),custo=inc*900;
   if(m.caixa<custo){alert('Caixa insuficiente para a reforma.');return;}
-  if(!confirm('Reformar o estádio: +'+inc.toLocaleString('pt-BR')+' lugares por '+fmt(custo)+'?'))return;
-  acao('reformarEstadio');
+  if(!confirm('Ampliar o setor '+info.nome+': +'+inc.toLocaleString('pt-BR')+' lugares por '+fmt(custo)+'?'))return;
+  acao('reformarSetor',{setor});
 }
+function ajustarPrecoSetor(setor,valor){acao('ajustarPrecoSetor',{setor,preco:Number(valor)||0});}
+function ajustarMensalidadeSocios(valor){acao('ajustarMensalidadeSocios',{valor:Number(valor)||0});}
 function buscarPatrocinio(){
-  const m=meu(),oferta=Math.round((m.torcida*.6+rnd(5000,20000))/1000)*1000;
-  if(!confirm('Novo patrocinador oferece '+fmt(oferta)+' por rodada (substitui o atual, '+fmt(m.patrocinio)+'). Aceitar?'))return;
-  acao('buscarPatrocinio',{oferta});
+  const m=meu();
+  if(!confirm('Buscar um novo patrocinador (substitui o atual, '+fmt(m.patrocinio)+'/rodada)?'))return;
+  acao('buscarPatrocinio');
 }
 function investirBase(){
   const m=meu();
@@ -621,22 +624,36 @@ function contratarStaff(area){
 function telaFinancas(){
   const m=meu(),f=state.financas.filter(x=>x.t===state.temporada).slice().reverse();
   const folha=m.jogadores.reduce((s,id)=>s+J(id).salario,0);
+  const receitaSocios=m.socios.ativos*m.socios.mensalidade;
   return `<div class="grid g2"><div class="painel"><h2>Resumo</h2>
   <table><tr><td>Caixa atual</td><td class="r num ${m.caixa<0?'neg':'pos'}" style="font-size:18px">${fmt(m.caixa)}</td></tr>
   <tr><td>Folha salarial por rodada</td><td class="r">${fmt(folha)}</td></tr>
   <tr><td>Cota de TV por rodada</td><td class="r">${fmt(TV[m.div])}</td></tr>
   <tr><td>Patrocínio por rodada</td><td class="r">${fmt(m.patrocinio)}</td></tr>
+  <tr><td>Sócio-torcedor por rodada</td><td class="r">${fmt(receitaSocios)}</td></tr>
   <tr><td>Torcida média</td><td class="r num">${m.torcida.toLocaleString('pt-BR')}</td></tr>
   <tr><td>Capacidade do estádio</td><td class="r num">${m.capacidade.toLocaleString('pt-BR')}</td></tr>
+  <tr><td>Público no último jogo em casa</td><td class="r num">${(m.ultimoPublico??0).toLocaleString('pt-BR')}</td></tr>
   <tr><td>Valor do elenco</td><td class="r">${fmt(m.jogadores.reduce((s,id)=>s+J(id).valor,0))}</td></tr></table>
-  <p class="muted">Bilheteria só entra em jogos em casa, cresce com a moral e é limitada pela capacidade do estádio. Se o caixa ficar negativo, venda jogadores.</p></div>
-  <div class="painel"><h2>Movimento por rodada</h2><table><tr><th>Rod.</th><th class="r">Bilheteria</th><th class="r">TV</th><th class="r">Patroc.</th><th class="r">Salários</th><th class="r">Caixa</th></tr>
-  ${f.map(x=>`<tr><td class="num">${x.r}</td><td class="r pos">${fmt(x.bilheteria)}</td><td class="r pos">${fmt(x.tv)}</td><td class="r pos">${fmt(x.patrocinio||0)}</td><td class="r neg">-${fmt(x.sal)}</td><td class="r num">${fmt(x.caixa)}</td></tr>`).join('')||'<tr><td colspan="6" class="muted">Nenhuma rodada jogada ainda.</td></tr>'}</table></div>
-  <div class="painel"><h2>Estádio &amp; patrocínio</h2>
-  <p class="muted">Capacidade atual: <b class="num">${m.capacidade.toLocaleString('pt-BR')}</b> lugares.</p>
-  <button onclick="reformarEstadio()">Reformar estádio (+${Math.round(m.capacidade*.12/500)*500} lugares)</button>
-  <p class="muted" style="margin-top:10px">Patrocínio atual: <b class="num">${fmt(m.patrocinio)}</b>/rodada.</p>
-  <button onclick="buscarPatrocinio()">Buscar novo patrocinador</button></div>
+  <p class="muted">Bilheteria só entra em jogos em casa: cada setor tem preço e ocupação próprios — preço mais alto que a referência do setor reduz o público, mais baixo enche o estádio. Se o caixa ficar negativo, venda jogadores.</p></div>
+  <div class="painel"><h2>Movimento por rodada</h2><table><tr><th>Rod.</th><th class="r">Bilheteria</th><th class="r">TV</th><th class="r">Patroc.</th><th class="r">Sócios</th><th class="r">Salários</th><th class="r">Caixa</th></tr>
+  ${f.map(x=>`<tr><td class="num">${x.r}</td><td class="r pos">${fmt(x.bilheteria)}</td><td class="r pos">${fmt(x.tv)}</td><td class="r pos">${fmt(x.patrocinio||0)}</td><td class="r pos">${fmt(x.socios||0)}</td><td class="r neg">-${fmt(x.sal)}</td><td class="r num">${fmt(x.caixa)}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Nenhuma rodada jogada ainda.</td></tr>'}</table></div>
+  <div class="painel" style="grid-column:1/-1"><h2>Estádio — setores</h2>
+  <table><tr><th>Setor</th><th class="r">Lugares</th><th class="r">Preço</th><th class="r">Ocupação (último jogo)</th><th></th></tr>
+  ${Object.entries(Motor.SETORES_ESTADIO).map(([k,info])=>{const s=m.setores[k],inc=Math.max(100,Math.round(s.lugares*.12/100)*100),custo=inc*900;
+    return `<tr><td>${info.nome}</td><td class="r num">${s.lugares.toLocaleString('pt-BR')}</td>
+    <td class="r"><input type="number" min="${Math.round(info.precoBase*.5)}" max="${Math.round(info.precoBase*3)}" step="5" value="${s.preco}" style="width:70px;text-align:right" onchange="ajustarPrecoSetor('${k}',this.value)"> <span class="muted" style="font-size:11px">(ref. ${fmt(info.precoBase)})</span></td>
+    <td class="r num">${Math.round(s.ocupacao*100)}%</td>
+    <td><button onclick="reformarSetor('${k}')">Ampliar +${inc.toLocaleString('pt-BR')} (${fmt(custo)})</button></td></tr>`;}).join('')}
+  </table></div>
+  <div class="painel"><h2>Patrocínio</h2>
+  ${m.patrocinioContrato?`<p class="muted">Contrato com <b>${esc(m.patrocinioContrato.empresa)}</b>: <b class="num pos">${fmt(m.patrocinio)}</b>/rodada, ${m.patrocinioContrato.duracaoRestante} temporada(s) restante(s). Bônus de desempenho: título paga 3 rodadas extras.</p>`
+    :`<p class="muted">Sem patrocinador no momento.</p>`}
+  <button onclick="buscarPatrocinio()">Buscar novo patrocinador${m.patrocinioContrato?' (substitui o atual)':''}</button></div>
+  <div class="painel"><h2>Sócio-torcedor</h2>
+  <p class="muted"><b class="num">${m.socios.ativos.toLocaleString('pt-BR')}</b> sócios ativos, gerando ${fmt(receitaSocios)}/rodada.</p>
+  <label>Mensalidade <input type="number" min="10" max="150" step="5" value="${m.socios.mensalidade}" style="width:70px" onchange="ajustarMensalidadeSocios(this.value)"></label>
+  <p class="muted" style="margin-top:6px">Mensalidade mais alta rende mais por sócio, mas afasta gente — e o número de sócios vai se ajustando aos poucos a cada rodada.</p></div>
   <div class="painel"><h2>Comissão técnica</h2>
   ${Object.keys(STAFF_NOMES).map(k=>`<div style="margin-bottom:10px"><b>${STAFF_NOMES[k]}</b> — nível ${m.staff[k]}/3<br><span class="muted">${STAFF_DESC[k]}</span><br>
     ${m.staff[k]<3?`<button style="margin-top:4px" onclick="contratarStaff('${k}')">Contratar nível ${m.staff[k]+1} (${fmt((m.staff[k]+1)*1.5e6)})</button>`:'<span class="pos">Nível máximo</span>'}</div>`).join('')}

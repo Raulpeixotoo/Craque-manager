@@ -108,6 +108,13 @@ const FORMACOES={
 const ESTILOS={ofensivo:{ata:1.12,def:.9,nome:'Ofensivo'},equilibrado:{ata:1,def:1,nome:'Equilibrado'},defensivo:{ata:.9,def:1.12,nome:'Defensivo'}};
 const COMPAT={ZAG:{LAT:.9,VOL:.85},LAT:{ZAG:.9,MEI:.85,VOL:.85},VOL:{ZAG:.85,MEI:.9,LAT:.85},MEI:{VOL:.9,ATA:.85,LAT:.85},ATA:{MEI:.85}};
 const TV={A:900000,B:400000,C:180000,D:80000};
+const SETORES_ESTADIO={
+  geral:{nome:'Geral',pct:.55,precoBase:40},
+  cadeiras:{nome:'Cadeiras',pct:.28,precoBase:100},
+  vip:{nome:'VIP',pct:.12,precoBase:280},
+  camarotes:{nome:'Camarotes',pct:.05,precoBase:650},
+};
+const EMPRESAS_PATROCINIO=['TecnoBank','Vale Motors','AgroSul','Conecta Telecom','Estrela Seguros','Litoral Bebidas','Serra Energia','Aurora Varejo','NorteCom','Ponta Alimentos'];
 const TREINOS={passe:'Passes',falta:'Faltas',penalti:'Pênaltis',fisico:'Físico'};
 const STAFF_NOMES={fisico:'Preparador físico',goleiro:'Treinador de goleiros',olheiro:'Olheiro-chefe'};
 const STAFF_DESC={fisico:'Reduz o risco de lesão em treinos e partidas.',goleiro:'Reforça a defesa da equipe em campo.',olheiro:'Revela o potencial oculto dos jovens do elenco.'};
@@ -143,12 +150,21 @@ function gerarJogador(state,pos,base){
   const valor=valorJogador(f,idade);
   return {id:++state.seq,nome,pos,idade,forca:f,potencial:idade<=23?clamp(f+rnd(5,25),40,99):f,moral:rnd(60,85),valor,salario:Math.round(valor*.004/1000)*1000,gols:0,assistencias:0,cartoes:0,suspenso:0,lesao:0,lesaoTipo:'',lesoesTotal:0,fragil:false,contrato:rnd(1,4),selecao:0};
 }
+function criarSetoresIniciais(capacidadeTotal){
+  const setores={};
+  Object.entries(SETORES_ESTADIO).forEach(([k,info])=>{
+    setores[k]={lugares:Math.max(100,Math.round(capacidadeTotal*info.pct/100)*100),preco:info.precoBase,ocupacao:.6};
+  });
+  return setores;
+}
+function recalcularCapacidade(t){t.capacidade=Object.values(t.setores).reduce((s,x)=>s+x.lugares,0);}
 function novoJogo(idMeu){
   const state={versaoMundo:2,seq:0,temporada:1,rodada:0,dia:0,jogadores:{},times:[],meuTime:idMeu,noticias:[],financas:[],fimTemporada:false,titulos:[],diasParaJogo:DIAS_ENTRE_RODADAS,rivalId:rivalDe(idMeu),classico:{v:0,e:0,d:0},pedidoPendente:null,ofertaPendente:null,janela:{aberta:true,dias:10,meioAberta:false},premiosTemporada:[]};
   TIMES_BASE.concat(TIMES_MUNDO).forEach((b,i)=>{
     const conf=b.conf||'SA',faixa=CAIXA_TIER[b.div];
     const t={...b,id:i,conf,formacao:pick(Object.keys(FORMACOES)),estilo:'equilibrado',jogadores:[],titulares:[],moral:70,pontosTreino:TREINO_PONTOS_POR_RODADA,ofertaHumana:null,
-      treino:{passe:0,falta:0,penalti:0,fisico:0},staff:{fisico:0,goleiro:0,olheiro:0},capacidade:Math.round(b.torcida*1.15),patrocinio:0,baseNivel:0,prospectos:[],
+      treino:{passe:0,falta:0,penalti:0,fisico:0},staff:{fisico:0,goleiro:0,olheiro:0},setores:criarSetoresIniciais(Math.round(b.torcida*1.15)),capacidade:Math.round(b.torcida*1.15),
+      socios:{ativos:Math.round(b.torcida*.1),mensalidade:40},patrocinio:0,patrocinioContrato:null,baseNivel:0,prospectos:[],
       caixa:rnd(faixa[0],faixa[1])*1e6};
     ELENCO_BASE.forEach(([pos,n])=>{for(let k=0;k<n;k++){const j=gerarJogador(state,pos,b.forca);j.time=i;state.jogadores[j.id]=j;t.jogadores.push(j.id);}});
     state.times.push(t);
@@ -428,7 +444,10 @@ function novaTemporada(state){
   ['A','B','C','D'].forEach(d=>{if(meuResumo.campeoes[d]===m.id){state.titulos.push(CONF_NOME[m.conf]+' Série '+d+' '+state.temporada);m.caixa+=TITULO_PREMIO[d];}});
   const posFinal=posicao(state,m.id);
   const foiCampeao=Object.values(meuResumo.campeoes).includes(m.id);
-  if(foiCampeao){m.torcida=Math.round(m.torcida*1.05);noticia(state,'O título fez a torcida crescer! Nova média: '+m.torcida.toLocaleString('pt-BR')+'.');}
+  if(foiCampeao){
+    m.torcida=Math.round(m.torcida*1.05);noticia(state,'O título fez a torcida crescer! Nova média: '+m.torcida.toLocaleString('pt-BR')+'.');
+    if(m.patrocinioContrato){const bonus=Math.round(m.patrocinio*3/1e4)*1e4;if(bonus>0){m.caixa+=bonus;noticia(state,m.patrocinioContrato.empresa+' pagou um bônus de '+fmt(bonus)+' pelo título (cláusula de desempenho).');}}
+  }
   else if(posFinal<=6)m.torcida=Math.round(m.torcida*1.02);
   CONFEDERACOES.forEach(conf=>{resumos[conf].transicoes.forEach(tr=>{tr.caem.forEach(id=>state.times[id].div=tr.inf);tr.sobem.forEach(id=>state.times[id].div=tr.sup);});});
   premiosMundiais(state);
@@ -448,6 +467,13 @@ function novaTemporada(state){
       }
       j.valor=valorJogador(j.forca,j.idade)*(j.fragil?.85:1);j.valor=Math.round(j.valor/1e4)*1e4;j.salario=Math.round(j.valor*.004/1000)*1000;});
     t.moral=70;t.caixa+=CAIXA_BONUS_TEMPORADA[t.div];t.treino={passe:0,falta:0,penalti:0,fisico:0};autoEscalar(state,t);
+    if(t.patrocinioContrato){
+      t.patrocinioContrato.duracaoRestante--;
+      if(t.patrocinioContrato.duracaoRestante<=0){
+        const empresa=t.patrocinioContrato.empresa;t.patrocinio=0;t.patrocinioContrato=null;
+        if(t.id===state.meuTime)noticia(state,'Contrato de patrocínio com '+empresa+' encerrado. Busque um novo patrocinador na aba Finanças.');
+      }
+    }
   });
   m.prospectos.slice().forEach(id=>{const j=J(state,id);j.idade++;
     if(j.idade>=18){m.prospectos=m.prospectos.filter(x=>x!==id);j.emBase=false;j.salario=Math.round(j.valor*.004/1000)*1000;m.jogadores.push(id);
@@ -471,6 +497,26 @@ function hash01(n){n=(n^61)^(n>>>16);n+=n<<3;n^=n>>>4;n=Math.imul(n,0x27d4eb2d);
 function disponivelNoMercado(state,j){
   if(j.forca<90)return true;
   return hash01(j.id*1000003+state.rodada*97+state.temporada*131)<.07;
+}
+function calcularBilheteria(t,casa,classico){
+  if(!casa)return 0;
+  const base=clamp(.35+t.moral/200,0,1)*(classico?1.3:1);
+  let publico=0,receita=0;
+  Object.entries(t.setores).forEach(([k,s])=>{
+    const info=SETORES_ESTADIO[k];
+    const fatorPreco=clamp(info.precoBase/s.preco,.5,1.6);
+    s.ocupacao=clamp(base*fatorPreco,.05,1);
+    const pub=Math.round(s.lugares*s.ocupacao);
+    publico+=pub;receita+=pub*s.preco;
+  });
+  t.ultimoPublico=publico;
+  return receita;
+}
+function calcularSocios(t){
+  const mensalidade=t.socios.mensalidade||40;
+  const potencial=t.torcida*.15*clamp(t.moral/70,.5,1.3)*clamp(50/mensalidade,.4,1.8);
+  t.socios.ativos=Math.max(0,Math.round(t.socios.ativos+(potencial-t.socios.ativos)*.08));
+  return t.socios.ativos*mensalidade;
 }
 function transferir(state,j,de,para,preco){
   de.jogadores=de.jogadores.filter(id=>id!==j.id);de.titulares=de.titulares.filter(id=>id!==j.id);
@@ -547,13 +593,12 @@ function concluirRodada(state){
     const jogo=jogoDoTime(state,t);
     const casa=jogo.casa===t.id;
     const rivalT=rivalDe(t.id),classicoT=rivalT!==null&&(jogo.casa===rivalT||jogo.fora===rivalT);
-    const publico=Math.min(t.capacidade,Math.round(t.torcida*(.35+t.moral/200)*(classicoT&&casa?1.3:1)));
-    const bilheteria=casa?publico*45:0;
-    const tv=TV[t.div];const patrocinio=t.patrocinio||0;
+    const bilheteria=calcularBilheteria(t,casa,classicoT&&casa);
+    const tv=TV[t.div];const patrocinio=t.patrocinio||0;const socios=calcularSocios(t);
     const sal=t.jogadores.reduce((s,id)=>s+J(state,id).salario,0);
     const custoStaff=((t.staff?.fisico||0)+(t.staff?.goleiro||0)+(t.staff?.olheiro||0))*15000;
-    t.caixa+=bilheteria+tv+patrocinio-sal-custoStaff;
-    if(t.id===state.meuTime)state.financas.push({t:state.temporada,r:state.rodada+1,bilheteria,tv,patrocinio,sal:sal+custoStaff,caixa:t.caixa});
+    t.caixa+=bilheteria+tv+patrocinio+socios-sal-custoStaff;
+    if(t.id===state.meuTime)state.financas.push({t:state.temporada,r:state.rodada+1,bilheteria,tv,patrocinio,socios,sal:sal+custoStaff,caixa:t.caixa});
   });
   const m=meu(state),jm=jogoDoTime(state,m);
   const adv=state.times[jm.casa===m.id?jm.fora:jm.casa];
@@ -594,6 +639,7 @@ return {
   CIDADES_MUNDO,SUFIXOS_POR_CONF,TIMES_MUNDO,RODADAS_TEMPORADA,DIAS_ENTRE_RODADAS,TREINO_PONTOS_POR_RODADA,
   CAIXA_TIER,CAIXA_BONUS_TEMPORADA,TITULO_PREMIO,FORMACOES,ESTILOS,COMPAT,TV,TREINOS,
   STAFF_NOMES,STAFF_DESC,FASES_COPA,CLASSICOS,TIPOS_FALTA,TIPOS_PENALTI,
+  SETORES_ESTADIO,EMPRESAS_PATROCINIO,
   // utilidades
   rnd,pick,clamp,fmt,diaDaRodada,rivalDe,gerarClubesConfederacao,
   // estado/mundo
@@ -610,6 +656,7 @@ return {
   tabela,posicao,resumoTemporada,premiosMundiais,novaTemporada,
   // economia/mercado
   transferir,negocioIA,eventoVestiario,convocarSelecao,ofertaRecebida,treinar,disponivelNoMercado,
+  criarSetoresIniciais,recalcularCapacidade,calcularBilheteria,calcularSocios,
   // fim de rodada
   concluirRodada,
 };
