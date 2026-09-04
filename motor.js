@@ -17,6 +17,7 @@ const Motor = (function(){
 const rnd=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const preencher=(frase,subs)=>Object.entries(subs).reduce((f,[k,v])=>f.replace('{'+k+'}',v),frase);
 const fmt=v=>{const s=v<0?'-':'';v=Math.abs(v);return 'R$ '+s+(v>=1e6?(v/1e6).toFixed(1).replace('.',',')+'M':Math.round(v/1e3)+'k');};
 
 /* ============ DADOS BASE (fictícios) ============ */
@@ -108,6 +109,19 @@ const FORMACOES={
 const ESTILOS={ofensivo:{ata:1.12,def:.9,nome:'Ofensivo'},equilibrado:{ata:1,def:1,nome:'Equilibrado'},defensivo:{ata:.9,def:1.12,nome:'Defensivo'}};
 const COMPAT={ZAG:{LAT:.9,VOL:.85},LAT:{ZAG:.9,MEI:.85,VOL:.85},VOL:{ZAG:.85,MEI:.9,LAT:.85},MEI:{VOL:.9,ATA:.85,LAT:.85},ATA:{MEI:.85}};
 const TV={A:900000,B:400000,C:180000,D:80000};
+const NARRADORES=[
+  {nome:'Galvão Bueno',bordoes:['Pode comemorar!','Que jogada!']},
+  {nome:'Clóvis Rocha',bordoes:['Olha ele aí!','Na ponta dos pés!']},
+  {nome:'Lúcia Silva',bordoes:['Precisão cirúrgica.','Visão de jogo extraordinária.']},
+  {nome:'Jorge Caldeira',bordoes:['Que golaço!','Inacreditável!']},
+];
+const FRASES_GOL=['Gol de {jogador}','{jogador} não perdoa e marca','{jogador} balança as redes','{jogador} coloca no fundo da rede','Que finalização de {jogador}! Gol'];
+const FRASES_GOL_QUENTE=['GOOOOOOOL de {jogador}','Golaço! {jogador} acerta um golaço de placa','INACREDITÁVEL! {jogador} faz um golaço','Que pintura! {jogador} caprichou'];
+const FRASES_AMARELO=['Amarelo para {jogador}','O árbitro mostra o cartão amarelo para {jogador}','Falta dura de {jogador}, amarelo'];
+const FRASES_VERMELHO=['Cartão vermelho para {jogador}','Expulso! {jogador} vê o vermelho','Direto pro chuveiro: {jogador} está expulso'];
+const FRASES_LESAO=['{jogador} sentiu e deixou o gramado','{jogador} não aguentou e precisou sair','Preocupação: {jogador} pede substituição'];
+const FRASES_INICIO=['A bola rola! {time} recebe o {adversario}','Começa a partida entre {time} e {adversario}','Tudo pronto para {time} x {adversario}'];
+const FRASES_FIM=['Fim de jogo: {time} {gc} x {gf} {adversario}','Apita o árbitro! {time} {gc} x {gf} {adversario}','Termina a partida: {time} {gc} x {gf} {adversario}'];
 const SETORES_ESTADIO={
   geral:{nome:'Geral',pct:.55,precoBase:40},
   cadeiras:{nome:'Cadeiras',pct:.28,precoBase:100},
@@ -286,7 +300,9 @@ function forcaTime(state,t,mando){
 /* ============ SIMULAÇÃO ============ */
 function criarPartida(state,g){
   const H=state.times[g.casa],A=state.times[g.fora];
-  return {g,min:0,gc:0,gf:0,fc:0,ff:0,posse:50,eventos:[],H:forcaTime(state,H,true),A:forcaTime(state,A,false),fim:false};
+  const narrador=pick(NARRADORES),classico=rivalDe(g.casa)===g.fora;
+  const eventos=[{min:0,tipo:'info',txt:preencher(pick(FRASES_INICIO),{time:H.nome,adversario:A.nome}),lado:null}];
+  return {g,min:0,gc:0,gf:0,fc:0,ff:0,posse:50,eventos,H:forcaTime(state,H,true),A:forcaTime(state,A,false),fim:false,narrador,classico};
 }
 function emCampo(state,t){return t.titulares.map(id=>J(state,id)).filter(j=>!j.suspenso&&!j.lesao);}
 function escolherAutor(state,t){
@@ -295,6 +311,15 @@ function escolherAutor(state,t){
   if(!cands.length)return J(state,t.titulares[0]);
   let tot=cands.reduce((s,c)=>s+c.p,0),r=Math.random()*tot;
   for(const c of cands){r-=c.p;if(r<=0)return c.j;}return cands[0].j;
+}
+function micNarrador(p,txt){return '🎙️ '+p.narrador.nome+': '+txt;}
+function comBordao(p,txt){return Math.random()<.2?txt+' '+pick(p.narrador.bordoes):txt;}
+function narrarGol(p,t,a,assist){
+  const quente=p.min>=75||p.classico;
+  let txt=preencher(pick(quente?FRASES_GOL_QUENTE:FRASES_GOL),{jogador:a.nome});
+  if(assist)txt+=', assistência de '+assist.nome;
+  txt+=' ('+t.nome+')';
+  return comBordao(p,micNarrador(p,txt));
 }
 /* hooks = { interativo(timeId), onPenalti(partida,lado,time), onFalta(...), onLesao(partida,lado,time,jogador) }
    Sem hooks (ou interativo retornando falso), o motor resolve sozinho — é assim que os
@@ -308,28 +333,29 @@ function minuto(state,p,hooks){
   for(const [r,t,l] of lados){
     if(Math.random()<.11*Math.pow(r,1.5)){if(l==='c')p.fc++;else p.ff++;}
     if(Math.random()<.0155*Math.pow(r,2.3)){const a=escolherAutor(state,t);a.gols++;if(l==='c')p.gc++;else p.gf++;
-      let txtGol='Gol de '+a.nome+' ('+t.nome+')';
-      if(Math.random()<.65){const cands=emCampo(state,t).filter(x=>x.id!==a.id);if(cands.length){const assist=pick(cands);assist.assistencias++;txtGol='Gol de '+a.nome+', assistência de '+assist.nome+' ('+t.nome+')';}}
-      p.eventos.push({min:p.min,tipo:'gol',txt:txtGol,lado:l});}
+      let assist=null;
+      if(Math.random()<.65){const cands=emCampo(state,t).filter(x=>x.id!==a.id);if(cands.length){assist=pick(cands);assist.assistencias++;}}
+      p.eventos.push({min:p.min,tipo:'gol',txt:narrarGol(p,t,a,assist),lado:l});}
     if(Math.random()<.018){const candCartao=emCampo(state,t);if(candCartao.length){const a=pick(candCartao);a.cartoes++;
       if(Math.random()<.08){if(l==='c')p.H.ata*=.9,p.H.def*=.9;else p.A.ata*=.9,p.A.def*=.9;a.suspenso=2;
-        p.eventos.push({min:p.min,tipo:'vermelho',txt:'Cartão vermelho para '+a.nome+' ('+t.nome+') — joga com um a menos',lado:l});}
-      else p.eventos.push({min:p.min,tipo:'amarelo',txt:'Amarelo para '+a.nome+' ('+t.nome+')',lado:l});}}
+        const txt=comBordao(p,micNarrador(p,preencher(pick(FRASES_VERMELHO),{jogador:a.nome})+' ('+t.nome+') — joga com um a menos'));
+        p.eventos.push({min:p.min,tipo:'vermelho',txt,lado:l});}
+      else p.eventos.push({min:p.min,tipo:'amarelo',txt:preencher(pick(FRASES_AMARELO),{jogador:a.nome})+' ('+t.nome+')',lado:l});}}
     const tr=t.treino||{passe:0,falta:0,penalti:0,fisico:0};
     if(Math.random()<.0009){
       if(hooks&&hooks.interativo&&hooks.interativo(t.id)){hooks.onPenalti(p,l,t);return;}
       const a=escolherAutor(state,t),conv=.76+tr.penalti/500;
-      if(Math.random()<conv){a.gols++;if(l==='c')p.gc++;else p.gf++;p.eventos.push({min:p.min,tipo:'gol',txt:'Pênalti convertido por '+a.nome+' ('+t.nome+')',lado:l});}
+      if(Math.random()<conv){a.gols++;if(l==='c')p.gc++;else p.gf++;p.eventos.push({min:p.min,tipo:'gol',txt:comBordao(p,micNarrador(p,'Pênalti convertido por '+a.nome+' ('+t.nome+')')),lado:l});}
       else p.eventos.push({min:p.min,tipo:'penalti_perdido',txt:'Pênalti perdido por '+a.nome+' ('+t.nome+')',lado:l});
     }
     if(Math.random()<.001*(1+tr.falta/100)){
       if(hooks&&hooks.interativo&&hooks.interativo(t.id)){hooks.onFalta(p,l,t);return;}
       const a=escolherAutor(state,t);a.gols++;if(l==='c')p.gc++;else p.gf++;
-      p.eventos.push({min:p.min,tipo:'gol',txt:'Golaço de falta de '+a.nome+' ('+t.nome+')',lado:l});
+      p.eventos.push({min:p.min,tipo:'gol',txt:comBordao(p,micNarrador(p,'Golaço de falta de '+a.nome+' ('+t.nome+')')),lado:l});
     }
     if(Math.random()<.0035*(1-(t.staff?t.staff.fisico:0)*.15)){const candLesao=emCampo(state,t);if(candLesao.length){const a=pick(candLesao);const dur=rnd(2,12);a.lesao=dur;a.lesaoTipo=pick(['muscular','torção no tornozelo','pancada no joelho','desgaste físico']);
       a.lesoesTotal=(a.lesoesTotal||0)+1;if(a.lesoesTotal>=3&&!a.fragil){a.fragil=true;a.valor=Math.round(a.valor*.85/1e4)*1e4;}
-      p.eventos.push({min:p.min,tipo:'lesao',txt:a.nome+' sentiu e deixou o gramado ('+t.nome+')',lado:l});
+      p.eventos.push({min:p.min,tipo:'lesao',txt:preencher(pick(FRASES_LESAO),{jogador:a.nome})+' ('+t.nome+')',lado:l});
       if(hooks&&hooks.interativo&&hooks.interativo(t.id))hooks.onLesao(p,l,t,a);}}
   }
   if(p.min>=90)finalizar(state,p);
@@ -339,6 +365,8 @@ function finalizar(state,p){
   const H=state.times[p.g.casa],A=state.times[p.g.fora];
   const dh=p.gc>p.gf?5:p.gc<p.gf?-5:0;
   H.moral=clamp(H.moral+dh,40,100);A.moral=clamp(A.moral-dh,40,100);
+  const txtFim=preencher(pick(FRASES_FIM),{time:H.nome,adversario:A.nome,gc:p.gc,gf:p.gf});
+  p.eventos.push({min:p.min,tipo:'fim',txt:micNarrador(p,txtFim),lado:null});
 }
 /* Resolve uma cobrança de pênalti/falta escolhida pelo jogador humano — a mesma matemática
    que antes vivia dentro do handler de UI, agora pura e reutilizável pelo servidor. */
@@ -357,7 +385,7 @@ function resolverCobranca(state,cobranca,tipoKey){
     if(c.tipo==='falta'&&tipoKey==='cruzamento'){autor=escolherAutor(state,t);txt=info.golTxt.replace('X',autor.nome);}
     else txt=c.tipo==='falta'?info.golTxt.replace('X',batedor.nome):(batedor.nome+' cobrou o pênalti ('+info.nome+') e marcou! GOL!');
     autor.gols++;if(c.l==='c')p.gc++;else p.gf++;
-    p.eventos.push({min:p.min,tipo:'gol',txt,lado:c.l});
+    p.eventos.push({min:p.min,tipo:'gol',txt:micNarrador(p,txt),lado:c.l});
   }else{
     txt=c.tipo==='falta'?info.forTxt.replace('X',batedor.nome):(batedor.nome+' cobrou o pênalti ('+info.nome+') e '+pick(['o goleiro defendeu!','mandou para fora!','acertou a trave!']));
     p.eventos.push({min:p.min,tipo:c.tipo==='penalti'?'penalti_perdido':'falta_perdida',txt,lado:c.l});
