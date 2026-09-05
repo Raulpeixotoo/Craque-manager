@@ -255,6 +255,21 @@ function gerarJogador(state,pos,base){
   return {id:++state.seq,nome,pos,idade,forca:f,potencial:idade<=23?clamp(f+rnd(5,25),40,99):f,moral:rnd(60,85),valor,salario:Math.round(valor*.004/1000)*1000,gols:0,assistencias:0,cartoes:0,suspenso:0,lesao:0,lesaoTipo:'',lesoesTotal:0,fragil:false,contrato:rnd(1,4),selecao:0,personalidade,dna:gerarDNA(personalidade),
     historico:[],carreira:{jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0}};
 }
+/* Subida automática da base (item de saúde do elenco): todo fim de temporada, garante 2 a
+   4 garotos de 18 anos novos no elenco do clube de referência — independente do gerador de
+   prospectos lento (m.prospectos) — pra compensar jogadores que saem por fim de contrato
+   sem reposição manual. Chance baixa de vir promessa/estrela, refletindo um olheiro raro
+   descobrindo algo acima da média da base. */
+function gerarJovemBase(state,t){
+  const j=gerarJogador(state,pick(POSICOES),t.forca-14);
+  j.idade=18;j.time=t.id;
+  let tag=null;const sorte=Math.random();
+  if(sorte<.015){j.forca=clamp(j.forca+rnd(10,18),55,90);j.potencial=clamp(j.forca+rnd(15,30),j.forca,99);tag='estrela';}
+  else if(sorte<.09){j.potencial=clamp(j.potencial+rnd(10,20),j.forca,98);tag='promessa';}
+  j.valor=valorJogador(j.forca,j.idade);j.valor=Math.round(j.valor/1e4)*1e4;j.salario=Math.round(j.valor*.004/1000)*1000;
+  state.jogadores[j.id]=j;t.jogadores.push(j.id);
+  return{j,tag};
+}
 function criarSetoresIniciais(capacidadeTotal){
   const setores={};
   Object.entries(SETORES_ESTADIO).forEach(([k,info])=>{
@@ -376,7 +391,9 @@ function autoEscalar(state,t){
   const slots=FORMACOES[t.formacao];const usados=new Set();t.titulares=[];
   const disp=t.jogadores.map(id=>J(state,id)).filter(j=>!j.suspenso&&!j.lesao&&!j.selecao);
   slots.forEach(pos=>{let best=null,bv=-1;disp.forEach(j=>{if(usados.has(j.id))return;const v=rating(j,pos);if(v>bv){bv=v;best=j;}});
-    if(!best){best=t.jogadores.map(id=>J(state,id)).find(j=>!usados.has(j.id));}usados.add(best.id);t.titulares.push(best.id);});
+    if(!best)best=t.jogadores.map(id=>J(state,id)).find(j=>!usados.has(j.id));
+    if(!best)return; // elenco com menos jogadores que posições da formação — não dá pra preencher, deixa o slot vazio em vez de travar
+    usados.add(best.id);t.titulares.push(best.id);});
 }
 /* Troca só quem ficou indisponível (suspenso/lesionado/convocado), mantendo o resto da
    escalação exatamente como estava — ao contrário de autoEscalar(), que reconstrói o time
@@ -687,6 +704,11 @@ function novaTemporada(state){
         }else j.contrato=rnd(2,4);
       }
       j.valor=valorJogador(j.forca,j.idade)*(j.fragil?.85:1);j.valor=Math.round(j.valor/1e4)*1e4;j.salario=Math.round(j.valor*.004/1000)*1000;});
+    if(t.id===state.meuTime){
+      const qtd=rnd(2,4),destaques=[];
+      for(let k=0;k<qtd;k++){const{j,tag}=gerarJovemBase(state,t);if(tag)destaques.push(j.nome+(tag==='estrela'?' (⭐ grande potencial)':' (promessa)'));}
+      noticia(state,qtd+' jogador'+(qtd>1?'es':'')+' de 18 anos subir'+(qtd>1?'am':'a')+' da base para o elenco.'+(destaques.length?' Destaque'+(destaques.length>1?'s':'')+': '+destaques.join(', ')+'.':''));
+    }
     t.moral=70;t.caixa+=CAIXA_BONUS_TEMPORADA[t.div];t.treino={passe:0,falta:0,penalti:0,fisico:0};autoEscalar(state,t);
     if(t.patrocinioContrato){
       t.patrocinioContrato.duracaoRestante--;
