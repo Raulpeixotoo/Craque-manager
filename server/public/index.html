@@ -8,39 +8,88 @@
 <style>
 :root{
   --grama:#0f3d2e; --board:#0c1a14; --painel:#142a21; --linha:#25443a;
-  --branco:#f2f5ee; --muted:#9bb3a6; --amarelo:#f5c518;
+  --branco:#f2f5ee; --muted:#9bb3a6; --amarelo:#f5c518; --vermelho:#e0533f;
   --fd:"Barlow Condensed","Arial Narrow",sans-serif; --fb:"Barlow",system-ui,sans-serif;
 }
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;background:var(--board);color:var(--branco);font-family:var(--fb);display:flex;align-items:center;justify-content:center}
-.wrap{max-width:760px;margin:40px auto;padding:20px}
+body{margin:0;min-height:100vh;background:var(--board);color:var(--branco);font-family:var(--fb)}
+.wrap{max-width:760px;margin:0 auto;padding:40px 20px}
 h1{font-family:var(--fd);font-size:56px;color:var(--amarelo);letter-spacing:1px;margin:0 0 6px}
+h2{font-family:var(--fd);font-size:22px;color:var(--amarelo);margin:0 0 10px}
+h3{font-family:var(--fd);font-size:17px;margin:0 0 8px}
 p.sub{color:var(--muted);margin:0 0 28px;max-width:56ch}
-.opcoes{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:600px){.opcoes{grid-template-columns:1fr}}
+.muted{color:var(--muted)}
+.opcoes{display:grid;grid-template-columns:1fr;gap:16px}
 a.opcao{display:block;background:var(--painel);border:1px solid var(--linha);border-radius:8px;padding:20px;text-decoration:none;color:var(--branco);transition:border-color .15s}
 a.opcao:hover{border-color:var(--amarelo)}
 a.opcao .emoji{font-size:32px}
-a.opcao h2{font-family:var(--fd);font-size:22px;color:var(--amarelo);margin:8px 0 4px}
+a.opcao h2{margin:8px 0 4px}
 a.opcao p{color:var(--muted);font-size:13px;margin:0}
+.painel{background:var(--painel);border:1px solid var(--linha);border-radius:8px;padding:16px;margin:14px 0}
+input{font-family:inherit;background:var(--board);color:var(--branco);border:1px solid var(--linha);padding:8px 10px;border-radius:4px;font-size:14px;width:100%;max-width:340px}
+button{font-family:inherit;cursor:pointer;border:1px solid var(--linha);background:var(--painel);color:var(--branco);padding:8px 14px;border-radius:4px;font-size:13px;margin-left:8px}
+button:hover{border-color:var(--amarelo)}
+button.primario{background:var(--amarelo);color:#1a1400;border-color:var(--amarelo);font-weight:700}
+button.primario:hover{background:#ffd54a}
+.mundos{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+a.mundo{display:flex;justify-content:space-between;align-items:center;background:var(--painel);border:1px solid var(--linha);border-radius:6px;padding:12px 16px;text-decoration:none;color:var(--branco)}
+a.mundo:hover{border-color:var(--amarelo)}
+a.mundo b{font-family:var(--fd);font-size:16px}
+a.mundo small{display:block;color:var(--muted);margin-top:2px}
+.aviso{background:rgba(224,83,63,.15);border:1px solid var(--vermelho);padding:8px 12px;border-radius:4px;margin:10px 0}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Craque Manager</h1>
-  <p class="sub">Monte seu clube, negocie no mercado e leve o time ao título mundial.</p>
-  <div class="opcoes">
-    <a class="opcao" href="/jogo.html">
-      <div class="emoji">🌐</div>
-      <h2>Multiplayer</h2>
-      <p>Jogue com a galera num mundo compartilhado — cada um comanda um clube, rodadas e partidas ao vivo em conjunto.</p>
-    </a>
-    <a class="opcao" href="/manager-futebol.html">
-      <div class="emoji">👤</div>
-      <h2>Singleplayer</h2>
-      <p>Jogue sozinho, no seu ritmo — o progresso fica salvo neste navegador, sem depender de mais ninguém.</p>
-    </a>
-  </div>
-</div>
+<div id="app"></div>
+<script>
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let mundos=[];
+let erro=null;
+let carregando=false;
+const app=document.getElementById('app');
+function render(){
+  app.innerHTML=`<div class="wrap">
+    <h1>Craque Manager</h1>
+    <p class="sub">Monte seu clube, negocie no mercado e leve o time ao título mundial.</p>
+    <div class="opcoes">
+      <a class="opcao" href="/manager-futebol.html">
+        <div class="emoji">👤</div>
+        <h2>Singleplayer</h2>
+        <p>Jogue sozinho, no seu ritmo — o progresso fica salvo neste navegador, sem depender de mais ninguém.</p>
+      </a>
+    </div>
+    <h2 style="margin-top:32px">🌐 Multiplayer</h2>
+    <p class="muted">Cada mundo é uma liga própria, com seu próprio calendário e clubes reivindicados por quem entrar. Crie um novo pra jogar com um grupo, ou entre num que já existe.</p>
+    ${erro?`<div class="aviso">${esc(erro)}</div>`:''}
+    <div class="painel">
+      <h3>Criar um mundo novo</h3>
+      <input id="nomeNovoMundo" placeholder="ex.: Liga dos Amigos" onkeydown="if(event.key==='Enter')criarMundo()">
+      <button class="primario" onclick="criarMundo()" ${carregando?'disabled':''}>Criar mundo</button>
+    </div>
+    <div class="mundos">
+      ${mundos.length?mundos.map(m=>`
+        <a class="mundo" href="/jogo.html?m=${encodeURIComponent(m.slug)}">
+          <div><b>${esc(m.nome)}</b><small>Temporada ${m.temporada} · rodada ${m.rodada}${m.fimTemporada?' · fim de temporada':''} · ${m.humanos} jogador(es)</small></div>
+        </a>`).join(''):'<p class="muted">Nenhum mundo criado ainda — crie o primeiro acima.</p>'}
+    </div>
+  </div>`;
+}
+async function carregarMundos(){
+  try{ mundos=await (await fetch('/api/mundos')).json(); }catch(e){ erro='Não consegui listar os mundos.'; }
+  render();
+}
+async function criarMundo(){
+  const nome=document.getElementById('nomeNovoMundo').value;
+  carregando=true;erro=null;render();
+  try{
+    const r=await fetch('/api/mundos',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nome})});
+    const dados=await r.json();
+    if(!r.ok){erro=dados.erro||'Erro ao criar mundo.';carregando=false;render();return;}
+    location.href='/jogo.html?m='+encodeURIComponent(dados.slug);
+  }catch(e){erro='Não consegui falar com o servidor.';carregando=false;render();}
+}
+render();
+carregarMundos();
+</script>
 </body>
 </html>

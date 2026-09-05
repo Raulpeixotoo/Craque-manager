@@ -380,9 +380,15 @@ function painelOferta(){
 }
 
 /* ============ SAVE ============ */
-const KEY='craque_manager_save';
-function salvar(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
-function carregar(){try{const s=localStorage.getItem(KEY);if(!s)return null;const st=JSON.parse(s);
+// Cada partida agora tem nome e id próprios (craque_manager_save_<id>), com um índice
+// (craque_manager_saves) listando {id,nome,criadoEm} — antes era um slot único fixo.
+const KEY_INDICE='craque_manager_saves';
+let saveAtualId=null;
+function chaveSave(id){return 'craque_manager_save_'+id;}
+function listarSaves(){try{return JSON.parse(localStorage.getItem(KEY_INDICE)||'[]');}catch(e){return[];}}
+function salvarIndice(lista){try{localStorage.setItem(KEY_INDICE,JSON.stringify(lista));}catch(e){}}
+function salvar(){if(!saveAtualId)return;try{localStorage.setItem(chaveSave(saveAtualId),JSON.stringify(state));}catch(e){}}
+function migrarSave(st){
     if(!st.versaoMundo||st.versaoMundo<2)return null;
     st.times.forEach(t=>{if(!t.treino)t.treino={passe:0,falta:0,penalti:0,fisico:0};
       if(!t.staff)t.staff={fisico:0,goleiro:0,olheiro:0};
@@ -409,12 +415,20 @@ function carregar(){try{const s=localStorage.getItem(KEY);if(!s)return null;cons
       if(j.selecao===undefined)j.selecao=0;
       if(j.lesoesTotal===undefined){j.lesoesTotal=0;j.fragil=false;}
       if(j.potencial===undefined)j.potencial=j.idade<=23?clamp(j.forca+rnd(5,25),40,96):j.forca;});
-    return st;}catch(e){return null;}}
-function temSave(){try{return !!localStorage.getItem(KEY);}catch(e){return false;}}
-function apagarSave(){
-  if(!confirm('Tem certeza que quer apagar o jogo salvo? Essa ação não pode ser desfeita.'))return;
-  try{localStorage.removeItem(KEY);}catch(e){}
-  state=null;ui={tela:'menu',sel:null,filtroPos:'',partida:null,clubeVisto:null};
+    return st;}
+function carregarSave(id){try{const s=localStorage.getItem(chaveSave(id));if(!s)return null;const st=migrarSave(JSON.parse(s));if(st)saveAtualId=id;return st;}catch(e){return null;}}
+function iniciarNovoJogo(nome,idTime){
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  saveAtualId=id;
+  const lista=listarSaves();lista.push({id,nome:(nome||'').trim()||'Minha carreira',criadoEm:Date.now()});salvarIndice(lista);
+  novoJogo(idTime);
+}
+function apagarSave(id){
+  if(!confirm('Tem certeza que quer apagar essa partida? Essa ação não pode ser desfeita.'))return;
+  try{localStorage.removeItem(chaveSave(id));}catch(e){}
+  salvarIndice(listarSaves().filter(s=>s.id!==id));
+  if(saveAtualId===id){saveAtualId=null;state=null;}
+  ui={tela:'menu',sel:null,filtroPos:'',partida:null,clubeVisto:null};
   render();
 }
 
@@ -427,7 +441,7 @@ function render(){
   const emJogo=ui.tela==='partida';
   app.innerHTML=`<header>
     <div class="escudo" style="background:${m.cor1};border-color:${m.cor2}"></div>
-    <div class="info"><h1 style="font-size:24px">${esc(m.nome)}</h1><small>${esc(m.cidade)} · ${CONF_NOME[m.conf]} Série ${m.div} · ${posicao(m.id)}º lugar</small></div>
+    <div class="info"><h1 style="font-size:24px">${esc(m.nome)}</h1><small>${esc(m.cidade)} · ${CONF_NOME[m.conf]} Série ${m.div} · ${posicao(m.id)}º lugar · ${esc((listarSaves().find(s=>s.id===saveAtualId)||{}).nome||'')}</small></div>
     <div class="stats">
       <div><span>Temporada</span><b class="num">${state.temporada}</b></div>
       <div><span>Rodada</span><b class="num">${Math.min(state.rodada+1,RODADAS_TEMPORADA)}/${RODADAS_TEMPORADA}</b></div>
@@ -445,17 +459,24 @@ function telaMenu(){
   const conf=ui.menuConf||'SA',div=ui.menuDiv||'A';
   const todos=TIMES_BASE.concat(TIMES_MUNDO).map((t,i)=>({...t,i,conf:t.conf||'SA'}));
   const times=todos.filter(t=>t.conf===conf&&t.div===div);
+  const saves=listarSaves().slice().sort((a,b)=>b.criadoEm-a.criadoEm);
   return `<div class="menu"><h1>Craque Manager</h1>
   <p>Escolha um clube, monte a escalação, negocie no mercado e leve o time ao título mundial. 5 confederações, 4 divisões cada, com acesso e rebaixamento, Copa Nacional, Copa Continental e Mundial de Clubes. O progresso fica salvo neste navegador.
   ${location.protocol!=='file:'?' <a href="/" style="color:var(--amarelo)">Prefere jogar com a galera? Volte pro início e escolha o multiplayer.</a>':''}</p>
-  ${temSave()?`<button class="primario" onclick="const s=carregar();if(s){state=s;ui.tela='inicio';render();}else{alert('Esse save é de uma versão antiga (antes da expansão mundial) e não é compatível. Comece um novo jogo.');apagarSave();}">Continuar jogo salvo</button> <button onclick="apagarSave()">Apagar jogo salvo</button>`:''}
+  ${saves.length?`<h2 style="margin-top:24px">Suas partidas</h2>
+  <div class="times">${saves.map(s=>`
+    <div class="tcard" style="cursor:default"><div><b>${esc(s.nome)}</b><small>criada em ${new Date(s.criadoEm).toLocaleDateString('pt-BR')}</small></div>
+    <div style="margin-left:auto;display:flex;gap:6px"><button onclick="const st=carregarSave('${s.id}');if(st){state=st;ui.tela='inicio';render();}else{alert('Essa partida é de uma versão antiga e não é compatível. Apague e comece uma nova.');}">Continuar</button>
+    <button onclick="apagarSave('${s.id}')">Apagar</button></div></div>`).join('')}</div>`:''}
   <h2 style="margin-top:24px">Começar novo jogo</h2>
-  <p class="muted">Confederação</p>
+  <p class="muted">Nome da partida</p>
+  <input id="nomeNovaPartida" placeholder="ex.: Minha carreira" style="width:100%;max-width:340px">
+  <p class="muted" style="margin-top:14px">Confederação</p>
   <div class="taticas">${CONFEDERACOES.map(c=>`<button class="${conf===c?'primario':''}" onclick="ui.menuConf='${c}';render()">${CONF_NOME[c]}</button>`).join('')}</div>
   <p class="muted">Divisão</p>
   <div class="taticas">${['A','B','C','D'].map(d=>`<button class="${div===d?'primario':''}" onclick="ui.menuDiv='${d}';render()">Série ${d}</button>`).join('')}</div>
   <div class="times">${times.map(t=>`
-    <div class="tcard" onclick="novoJogo(${t.i});ui.tela='inicio';render()"><div class="escudo" style="background:${t.cor1};border-color:${t.cor2}"></div>
+    <div class="tcard" onclick="iniciarNovoJogo(document.getElementById('nomeNovaPartida').value,${t.i});ui.tela='inicio';render()"><div class="escudo" style="background:${t.cor1};border-color:${t.cor2}"></div>
     <div><b>${esc(t.nome)}</b><small>${esc(t.cidade)} · força ${t.forca}</small></div></div>`).join('')}</div>
   </div>`;
 }

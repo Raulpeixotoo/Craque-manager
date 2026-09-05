@@ -41,7 +41,9 @@ button.primario{background:var(--amarelo);color:#1a1400;border-color:var(--amare
 <div id="app"></div>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-const socket = io();
+const mundoSlug = new URLSearchParams(location.search).get('m');
+if (!mundoSlug) document.write('<p style="font-family:sans-serif;padding:20px">Adicione ?m=&lt;slug do mundo&gt; na URL (veja a lista em <a href="/">/</a>).</p>');
+const socket = io(mundoSlug ? '/mundo/' + mundoSlug : '/');
 let mundo = null;
 let erro = null;
 let confSel = null, divSel = null;
