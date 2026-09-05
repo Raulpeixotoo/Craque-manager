@@ -159,18 +159,74 @@ const TIPOS_PENALTI={
   cavadinha:{nome:'Cavadinha no meio',desc:'Toque suave no meio do gol — arriscado se o goleiro não pular.',chance:.72},
   forte:{nome:'Pancada seca no meio',desc:'Chute seco e forte, sem enganar ninguém.',chance:.75}
 };
+/* Personalidade + DNA oculto (Banco de Ideias, itens 01/03). Personalidade é o traço
+   visível na UI; DNA fica só por baixo dos panos, influenciando variação de desempenho,
+   moral e negociação — ver gerarForma/treinar/eventoVestiario/custoRenovacao. */
+const PERSONALIDADES={
+  equilibrado:{nome:'Equilibrado',emoji:'😐',desc:'Sem traço marcante — nem melhora nem atrapalha.',peso:30},
+  lider:{nome:'Líder',emoji:'🧭',desc:'Puxa o vestiário; ajuda a moral do elenco quando está em campo.',peso:6},
+  temperamental:{nome:'Temperamental',emoji:'🔥',desc:'Reage forte a tudo — moral sobe e desce mais que o normal.',peso:8},
+  frio:{nome:'Frio',emoji:'🧊',desc:'Não se abala — joga igual em jogo qualquer e em clássico decisivo.',peso:8},
+  mercenario:{nome:'Mercenário',emoji:'💰',desc:'Pouco apegado ao clube — renovações saem mais caras.',peso:7},
+  leal:{nome:'Leal',emoji:'🤝',desc:'Vestido com a camisa — renovações saem mais baratas.',peso:8},
+  caseiro:{nome:'Caseiro',emoji:'🏠',desc:'Prefere ficar onde está, sem grandes ambições de sair.',peso:6},
+  ambicioso:{nome:'Ambicioso',emoji:'📈',desc:'Quer sempre mais — cobra caro pra renovar contrato.',peso:6},
+  estrela:{nome:'Estrela',emoji:'⭐',desc:'Rende mais sob pressão, mas fica insatisfeito se sobrar no banco.',peso:5},
+  promessa:{nome:'Promessa',emoji:'🌱',desc:'Jovem talento com adaptabilidade acima da média.',peso:6},
+  fragil:{nome:'Frágil',emoji:'🍃',desc:'Sente mais a pressão de jogos decisivos.',peso:6},
+  inteligente:{nome:'Inteligente',emoji:'🧠',desc:'Profissional e se adapta bem a qualquer sistema tático.',peso:6},
+  brincalhao:{nome:'Brincalhão',emoji:'🎭',desc:'Descontraído — ajuda o clima do grupo sem ser um líder de fato.',peso:6},
+  timido:{nome:'Tímido',emoji:'🙈',desc:'Reage pouco a incentivo e sofre mais em clássicos.',peso:6}
+};
+function pickPersonalidade(){
+  const chaves=Object.keys(PERSONALIDADES);
+  const total=chaves.reduce((s,k)=>s+PERSONALIDADES[k].peso,0);
+  let r=Math.random()*total;
+  for(const k of chaves){r-=PERSONALIDADES[k].peso;if(r<=0)return k;}
+  return 'equilibrado';
+}
+function gerarDNA(personalidade){
+  const dna={consistencia:rnd(30,85),ambicao:rnd(30,85),lealdade:rnd(30,85),pressao:rnd(30,85),profissionalismo:rnd(30,85),adaptabilidade:rnd(30,85)};
+  const nudge=(chave,delta)=>dna[chave]=clamp(dna[chave]+delta,10,95);
+  switch(personalidade){
+    case 'lider':nudge('lealdade',15);nudge('pressao',10);break;
+    case 'temperamental':nudge('pressao',-20);nudge('consistencia',-10);break;
+    case 'frio':nudge('pressao',20);nudge('consistencia',10);break;
+    case 'mercenario':nudge('lealdade',-25);nudge('ambicao',20);break;
+    case 'leal':nudge('lealdade',25);nudge('ambicao',-10);break;
+    case 'caseiro':nudge('ambicao',-20);nudge('lealdade',10);break;
+    case 'ambicioso':nudge('ambicao',25);break;
+    case 'estrela':nudge('pressao',15);nudge('ambicao',10);break;
+    case 'promessa':nudge('adaptabilidade',20);break;
+    case 'fragil':nudge('pressao',-20);break;
+    case 'inteligente':nudge('adaptabilidade',15);nudge('profissionalismo',15);break;
+    case 'timido':nudge('pressao',-15);nudge('consistencia',-5);break;
+  }
+  return dna;
+}
 
 /* ============ HELPERS INTERNOS DE ESTADO ============ */
 const meu=state=>state.times[state.meuTime];
 const J=(state,id)=>state.jogadores[id];
 
 function valorJogador(f,idade){let v=Math.pow(f/10,3)*32000;if(idade<23)v*=1.25;else if(idade>31)v*=.6;return Math.round(v/10000)*10000;}
+/* Custo de renovar contrato, usado tanto no solo quanto no ACOES.renovar do servidor
+   (fonte única em vez de duplicar a fórmula em cada lugar) — leal sai mais barato,
+   mercenário/ambicioso saem mais caros, escalado pelo DNA de ambição. */
+function custoRenovacao(j){
+  let mult=1;
+  if(j.personalidade==='leal')mult=.8;
+  else if(j.personalidade==='mercenario')mult=1.3;
+  else if(j.personalidade==='ambicioso')mult=1+((j.dna&&j.dna.ambicao)||50)/500;
+  return {custo:Math.round(j.valor*.15*mult/1e4)*1e4,anos:rnd(2,4)};
+}
 function gerarJogador(state,pos,base){
   const idade=rnd(17,35);let f=base+rnd(-9,7);if(idade<21)f-=rnd(3,9);if(idade>32)f-=rnd(1,5);f=clamp(f,40,94);
   if(Math.random()<.006)f=clamp(f+rnd(8,16),93,99);
   const nome=Math.random()<.2?pick(APELIDOS):pick(NOMES)+' '+pick(SOBRENOMES);
   const valor=valorJogador(f,idade);
-  return {id:++state.seq,nome,pos,idade,forca:f,potencial:idade<=23?clamp(f+rnd(5,25),40,99):f,moral:rnd(60,85),valor,salario:Math.round(valor*.004/1000)*1000,gols:0,assistencias:0,cartoes:0,suspenso:0,lesao:0,lesaoTipo:'',lesoesTotal:0,fragil:false,contrato:rnd(1,4),selecao:0};
+  const personalidade=pickPersonalidade();
+  return {id:++state.seq,nome,pos,idade,forca:f,potencial:idade<=23?clamp(f+rnd(5,25),40,99):f,moral:rnd(60,85),valor,salario:Math.round(valor*.004/1000)*1000,gols:0,assistencias:0,cartoes:0,suspenso:0,lesao:0,lesaoTipo:'',lesoesTotal:0,fragil:false,contrato:rnd(1,4),selecao:0,personalidade,dna:gerarDNA(personalidade)};
 }
 function criarSetoresIniciais(capacidadeTotal){
   const setores={};
@@ -314,20 +370,41 @@ function substituirIndisponiveis(state,t){
   });
   return trocou;
 }
-function forcaTime(state,t,mando){
+/* `forma` (opcional) é um mapa jogadorId→multiplicador, sorteado uma vez por partida em
+   gerarForma() a partir do DNA de cada titular (consistência = amplitude da variação;
+   pressão = efeito extra em clássico). Sem `forma`, o cálculo é o determinístico de
+   sempre — é o que as telas de "força do time" fora de partida (Elenco, Finanças) usam. */
+function forcaTime(state,t,mando,forma){
   const slots=FORMACOES[t.formacao],est=ESTILOS[t.estilo];let ata=0,na=0,def=0,nd=0;
-  t.titulares.forEach((id,i)=>{const j=J(state,id),pos=slots[i],r=rating(j,pos);
+  t.titulares.forEach((id,i)=>{const j=J(state,id),pos=slots[i],r=rating(j,pos)*((forma&&forma[id])||1);
     if(pos==='ATA'||pos==='MEI'){ata+=r;na++;}else if(pos==='VOL'){ata+=r*.4;na+=.4;def+=r*.6;nd+=.6;}else{def+=r;nd++;}});
   const mf=.93+(t.moral/100)*.14;
   const tr=t.treino||{passe:0,falta:0,penalti:0,fisico:0};
   const bAta=1+tr.passe/500,bGoleiro=1+(t.staff?t.staff.goleiro:0)*.025,bDef=(1+tr.fisico/500)*bGoleiro;
   return {ata:(ata/na)*est.ata*mf*bAta*(mando?1.05:.97),def:(def/nd)*est.def*mf*bDef*(mando?1.05:.97)};
 }
-/* Igual forcaTime, mas reaplica o boost de "ataque total" se o clube já ativou nesta
-   partida — precisa ser usado em todo recálculo DURANTE o jogo (substituição, troca de
-   estilo), senão a substituição/troca apagaria o boost sem querer. */
+/* Sorteado uma vez em criarPartida e guardado em p.forma — não é re-sorteado a cada
+   recálculo no meio do jogo (substituição, troca de estilo, ataque total), senão a
+   variação de "dia bom/dia ruim" mudaria a cada clique em vez de valer pra partida
+   inteira. Consistência baixa = oscila mais; em clássico, pressão soma um ajuste extra
+   pelo sinal da personalidade (estrela/frio/líder se saem melhor sob pressão). */
+const SINAL_PRESSAO={estrela:1,frio:1,lider:.5,inteligente:.3,temperamental:-1,timido:-.7,fragil:-.6};
+function gerarForma(state,H,A,classico){
+  const forma={};
+  H.titulares.concat(A.titulares).forEach(id=>{
+    const j=J(state,id),dna=j.dna||{consistencia:60,pressao:60};
+    let mult=1+(rnd(-10,10)/100)*(1-dna.consistencia/100)*1.5;
+    if(classico){const sinal=SINAL_PRESSAO[j.personalidade]||0;mult+=sinal*(dna.pressao-50)/50*.08;}
+    forma[id]=clamp(mult,.7,1.3);
+  });
+  return forma;
+}
+/* Igual forcaTime (com a variação de forma da partida embutida), mas reaplica o boost de
+   "ataque total" se o clube já ativou nesta partida — precisa ser usado em todo recálculo
+   DURANTE o jogo (substituição, troca de estilo), senão a substituição/troca apagaria o
+   boost sem querer. */
 function forcaTimeAoVivo(state,p,t,mando){
-  const f=forcaTime(state,t,mando);
+  const f=forcaTime(state,t,mando,p.forma);
   if(p.ataqueTotal&&p.ataqueTotal[t.id])return{ata:f.ata*1.3,def:f.def*.7};
   return f;
 }
@@ -351,7 +428,8 @@ function criarPartida(state,g,acresc1,acresc2){
   const H=state.times[g.casa],A=state.times[g.fora];
   const narrador=pick(NARRADORES),classico=rivalDe(g.casa)===g.fora;
   const eventos=[{min:0,tipo:'info',txt:preencher(pick(FRASES_INICIO),{time:H.nome,adversario:A.nome}),lado:null}];
-  return {g,min:0,gc:0,gf:0,fc:0,ff:0,posse:50,eventos,H:forcaTime(state,H,true),A:forcaTime(state,A,false),fim:false,narrador,classico,
+  const forma=gerarForma(state,H,A,classico);
+  return {g,min:0,gc:0,gf:0,fc:0,ff:0,posse:50,eventos,H:forcaTime(state,H,true,forma),A:forcaTime(state,A,false,forma),fim:false,narrador,classico,forma,
     acresc1:acresc1??rnd(1,4),acresc2:acresc2??rnd(2,6)};
 }
 function emCampo(state,t){return t.titulares.map(id=>J(state,id)).filter(j=>!j.suspenso&&!j.lesao);}
@@ -635,7 +713,8 @@ function negocioIA(state){
 function treinar(state,clubeId,tipo){
   const m=state.times[clubeId];
   if(tipo==='folga'){
-    m.jogadores.map(id=>J(state,id)).forEach(j=>{j.moral=clamp(j.moral+rnd(1,3),0,100);if(j.lesao>0)j.lesao=Math.max(0,j.lesao-2);});
+    const MULT_MORAL={temperamental:1.4,frio:.7,timido:.75};
+    m.jogadores.map(id=>J(state,id)).forEach(j=>{const mult=MULT_MORAL[j.personalidade]||1;j.moral=clamp(j.moral+Math.round(rnd(1,3)*mult),0,100);if(j.lesao>0)j.lesao=Math.max(0,j.lesao-2);});
     m.moral=clamp(m.moral+1,0,100);
   }else{
     m.jogadores.map(id=>J(state,id)).forEach(j=>{if(j.lesao>0)j.lesao=Math.max(0,j.lesao-1);});
@@ -648,7 +727,15 @@ function treinar(state,clubeId,tipo){
 }
 function eventoVestiario(state){
   if(state.pedidoPendente)return;
-  const m=meu(state),cands=m.titulares.map(id=>J(state,id)).filter(j=>j.moral<70);
+  const m=meu(state);
+  const melhoresPorPos={};
+  m.jogadores.map(id=>J(state,id)).forEach(j=>{if(!melhoresPorPos[j.pos]||j.forca>melhoresPorPos[j.pos])melhoresPorPos[j.pos]=j.forca;});
+  const cands=m.jogadores.map(id=>J(state,id)).filter(j=>{
+    if(j.personalidade==='lider'||j.personalidade==='leal')return j.moral<50;
+    if(j.moral<70)return true;
+    if(j.personalidade==='estrela'&&!m.titulares.includes(j.id)&&j.forca>=melhoresPorPos[j.pos]-3)return true;
+    return false;
+  });
   if(!cands.length)return;
   const j=pick(cands),aumento=Math.round(j.salario*.25/1000)*1000;
   state.pedidoPendente={jogadorId:j.id,aumento};
@@ -737,11 +824,12 @@ return {
   CIDADES_MUNDO,SUFIXOS_POR_CONF,TIMES_MUNDO,RODADAS_TEMPORADA,DIAS_ENTRE_RODADAS,TREINO_PONTOS_POR_RODADA,
   CAIXA_TIER,CAIXA_BONUS_TEMPORADA,TITULO_PREMIO,VICE_PREMIO,BONUS_VITORIA,FORMACOES,ESTILOS,COMPAT,TV,TREINOS,
   STAFF_NOMES,STAFF_DESC,FASES_COPA,CLASSICOS,TIPOS_FALTA,TIPOS_PENALTI,
-  SETORES_ESTADIO,EMPRESAS_PATROCINIO,
+  SETORES_ESTADIO,EMPRESAS_PATROCINIO,PERSONALIDADES,
   // utilidades
   rnd,pick,clamp,fmt,diaDaRodada,rivalDe,gerarClubesConfederacao,
   // estado/mundo
   meu,J,valorJogador,gerarJogador,novoJogo,gerarCalendario,gerarTemporada,noticia,
+  pickPersonalidade,gerarDNA,custoRenovacao,
   // competições
   criarTorneioMataMata,simularJogoCopa,jogarFaseMataMata,jogarTorneio,gerarCopa,
   gerarTorneiosContinentais,gerarMundial,jogarMundial,

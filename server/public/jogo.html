@@ -438,14 +438,18 @@ function statusJogador(j){
   if(j.selecao>0)return `<span class="pos">🌟 Seleção (${j.selecao}j)</span>`;
   return j.fragil?'<span class="pos">Apto</span> <span class="neg" title="Histórico de lesões: frágil">🔴</span>':'<span class="pos">Apto</span>';
 }
+function personalidadeTag(j){
+  const p=Motor.PERSONALIDADES[j.personalidade];
+  return p?`<span title="${esc(p.nome)}: ${esc(p.desc)}">${p.emoji}</span>`:'';
+}
 function linhaJogador(j,extra=''){
   const m=meu(),pot=j.idade>23?'-':m.staff.olheiro>=1?j.potencial:'<span class="muted" title="Contrate um olheiro para revelar">?</span>';
-  return `<tr>${extra}<td>${esc(j.nome)}${estrelaTag(j.forca)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${pot}</td><td class="r num">${j.moral}</td><td class="r num">${j.gols}</td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(j.valor)}</td><td>${statusJogador(j)}</td><td>${j.contrato}a ${j.contrato<=2?`<button onclick="renovar(${j.id})">Renovar</button>`:''}</td></tr>`;
+  return `<tr>${extra}<td>${personalidadeTag(j)} ${esc(j.nome)}${estrelaTag(j.forca)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${pot}</td><td class="r num">${j.moral}</td><td class="r num">${j.gols}</td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(j.valor)}</td><td>${statusJogador(j)}</td><td>${j.contrato}a ${j.contrato<=2?`<button onclick="renovar(${j.id})">Renovar</button>`:''}</td></tr>`;
 }
 function renovar(id){
-  const j=J(id),m=meu(),custo=Math.round(j.valor*.15/1e4)*1e4;
+  const j=J(id),m=meu(),{custo,anos}=Motor.custoRenovacao(j);
   if(m.caixa<custo){alert('Caixa insuficiente para renovar.');return;}
-  if(!confirm('Renovar '+j.nome+' por 2 a 4 anos, custo '+fmt(custo)+' e salário +10%?'))return;
+  if(!confirm('Renovar '+j.nome+' por '+anos+' anos, custo '+fmt(custo)+' e salário +10%?'))return;
   acao('renovar',{jogadorId:id});
 }
 function telaElenco(){

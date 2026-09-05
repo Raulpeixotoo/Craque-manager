@@ -63,6 +63,9 @@ function migrarMundo(mundo) {
     // no "Movimento por rodada" da aba Finanças.
     if (!t.financas) t.financas = (t.id === mundo.meuTime && mundo.financas) ? mundo.financas : [];
   });
+  Object.values(mundo.jogadores).forEach(j => {
+    if (!j.dna) { j.personalidade = Motor.pickPersonalidade(); j.dna = Motor.gerarDNA(j.personalidade); }
+  });
   if (!mundo.rodadaEstado || mundo.rodadaEstado.status !== 'lobby') {
     // Se o servidor caiu no meio de uma rodada ao vivo, as partidas em memória se
     // perdem — mas os jogos que ainda não têm placar continuam com gc:null no
@@ -414,7 +417,7 @@ function ativarMundo(slug) {
     },
     renovar: (clube, p) => {
       const j = Motor.J(mundo, p.jogadorId);
-      const custo = Math.round(j.valor * .15 / 1e4) * 1e4, anos = Motor.rnd(2, 4);
+      const { custo, anos } = Motor.custoRenovacao(j);
       if (clube.caixa < custo) throw new Error('Caixa insuficiente para renovar.');
       clube.caixa -= custo; j.contrato += anos; j.salario = Math.round(j.salario * 1.1 / 1000) * 1000; j.moral = Motor.clamp(j.moral + 10, 0, 100);
       Motor.noticia(mundo, 'Contrato de ' + j.nome + ' renovado por ' + anos + ' anos (' + clube.nome + ').');
