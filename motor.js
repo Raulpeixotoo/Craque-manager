@@ -179,12 +179,12 @@ function criarSetoresIniciais(capacidadeTotal){
 }
 function recalcularCapacidade(t){t.capacidade=Object.values(t.setores).reduce((s,x)=>s+x.lugares,0);}
 function novoJogo(idMeu){
-  const state={versaoMundo:2,seq:0,temporada:1,rodada:0,dia:0,jogadores:{},times:[],meuTime:idMeu,noticias:[],financas:[],fimTemporada:false,titulos:[],diasParaJogo:DIAS_ENTRE_RODADAS,rivalId:rivalDe(idMeu),classico:{v:0,e:0,d:0},pedidoPendente:null,ofertaPendente:null,janela:{aberta:true,dias:10,meioAberta:false},premiosTemporada:[]};
+  const state={versaoMundo:2,seq:0,temporada:1,rodada:0,dia:0,jogadores:{},times:[],meuTime:idMeu,noticias:[],fimTemporada:false,titulos:[],diasParaJogo:DIAS_ENTRE_RODADAS,rivalId:rivalDe(idMeu),classico:{v:0,e:0,d:0},pedidoPendente:null,ofertaPendente:null,janela:{aberta:true,dias:10,meioAberta:false},premiosTemporada:[]};
   TIMES_BASE.concat(TIMES_MUNDO).forEach((b,i)=>{
     const conf=b.conf||'SA',faixa=CAIXA_TIER[b.div];
     const t={...b,id:i,conf,formacao:pick(Object.keys(FORMACOES)),estilo:'equilibrado',jogadores:[],titulares:[],moral:70,pontosTreino:TREINO_PONTOS_POR_RODADA,ofertaHumana:null,
       treino:{passe:0,falta:0,penalti:0,fisico:0},staff:{fisico:0,goleiro:0,olheiro:0},setores:criarSetoresIniciais(Math.round(b.torcida*1.15)),capacidade:Math.round(b.torcida*1.15),
-      socios:{ativos:Math.round(b.torcida*.1),mensalidade:40},patrocinio:0,patrocinioContrato:null,baseNivel:0,prospectos:[],
+      socios:{ativos:Math.round(b.torcida*.1),mensalidade:40},patrocinio:0,patrocinioContrato:null,baseNivel:0,prospectos:[],financas:[],
       caixa:rnd(faixa[0],faixa[1])*1e6};
     ELENCO_BASE.forEach(([pos,n])=>{for(let k=0;k<n;k++){const j=gerarJogador(state,pos,b.forca);j.time=i;state.jogadores[j.id]=j;t.jogadores.push(j.id);}});
     state.times.push(t);
@@ -641,7 +641,9 @@ function concluirRodada(state){
     const sal=t.jogadores.reduce((s,id)=>s+J(state,id).salario,0);
     const custoStaff=((t.staff?.fisico||0)+(t.staff?.goleiro||0)+(t.staff?.olheiro||0))*15000;
     t.caixa+=bilheteria+tv+patrocinio+socios-sal-custoStaff;
-    if(t.id===state.meuTime)state.financas.push({t:state.temporada,r:state.rodada+1,bilheteria,tv,patrocinio,socios,sal:sal+custoStaff,caixa:t.caixa});
+    if(!t.financas)t.financas=[];
+    t.financas.push({t:state.temporada,r:state.rodada+1,bilheteria,tv,patrocinio,socios,sal:sal+custoStaff,caixa:t.caixa});
+    if(t.financas.length>40)t.financas=t.financas.slice(-40);
   });
   const m=meu(state),jm=jogoDoTime(state,m);
   const adv=state.times[jm.casa===m.id?jm.fora:jm.casa];

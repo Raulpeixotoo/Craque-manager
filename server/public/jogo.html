@@ -690,7 +690,7 @@ function contratarStaff(area){
   acao('contratarStaff',{area});
 }
 function telaFinancas(){
-  const m=meu(),f=state.financas.filter(x=>x.t===state.temporada).slice().reverse();
+  const m=meu(),f=(m.financas||[]).filter(x=>x.t===state.temporada).slice().reverse();
   const folha=m.jogadores.reduce((s,id)=>s+J(id).salario,0);
   const receitaSocios=m.socios.ativos*m.socios.mensalidade;
   return `<div class="grid g2"><div class="painel"><h2>Resumo</h2>

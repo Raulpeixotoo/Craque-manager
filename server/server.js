@@ -58,6 +58,10 @@ function migrarMundo(mundo) {
     if (!t.setores) t.setores = Motor.criarSetoresIniciais(t.capacidade);
     if (!t.socios) t.socios = { ativos: Math.round(t.torcida * .1), mensalidade: 40 };
     if (t.patrocinioContrato === undefined) t.patrocinioContrato = t.patrocinio > 0 ? { empresa: Motor.pick(Motor.EMPRESAS_PATROCINIO), duracaoRestante: Motor.rnd(1, 3) } : null;
+    // Financas era um log único do mundo inteiro (só do time de referência) — cada
+    // clube passou a ter o próprio, senão todo humano via o extrato de outra pessoa
+    // no "Movimento por rodada" da aba Finanças.
+    if (!t.financas) t.financas = (t.id === mundo.meuTime && mundo.financas) ? mundo.financas : [];
   });
   if (!mundo.rodadaEstado || mundo.rodadaEstado.status !== 'lobby') {
     // Se o servidor caiu no meio de uma rodada ao vivo, as partidas em memória se
