@@ -65,7 +65,10 @@ function migrarMundo(mundo) {
   });
   Object.values(mundo.jogadores).forEach(j => {
     if (!j.dna) { j.personalidade = Motor.pickPersonalidade(); j.dna = Motor.gerarDNA(j.personalidade); }
+    if (!j.carreira) j.carreira = { jogos: 0, gols: 0, assistencias: 0, titulos: 0, classicos: 0, temporadasClube: 0 };
+    if (!j.historico) j.historico = [];
   });
+  mundo.times.forEach(t => { if (!t.idolos) t.idolos = []; });
   if (!mundo.rodadaEstado || mundo.rodadaEstado.status !== 'lobby') {
     // Se o servidor caiu no meio de uma rodada ao vivo, as partidas em memória se
     // perdem — mas os jogos que ainda não têm placar continuam com gc:null no

@@ -220,13 +220,40 @@ function custoRenovacao(j){
   else if(j.personalidade==='ambicioso')mult=1+((j.dna&&j.dna.ambicao)||50)/500;
   return {custo:Math.round(j.valor*.15*mult/1e4)*1e4,anos:rnd(2,4)};
 }
+/* História individual + memória (Banco de Ideias, itens 02/21). historico é um log curto
+   (máx. 15) de acontecimentos marcantes da carreira; carreira acumula totais que NUNCA
+   resetam entre temporadas (ao contrário de j.gols/j.assistencias, que zeram em
+   novaTemporada) — é o que alimenta a reputação (item 05) e o museu de ídolos. */
+function pushHistorico(state,j,tipo,txt){
+  if(!j.historico)j.historico=[];
+  j.historico.push({temporada:state.temporada,rodada:state.rodada+1,tipo,txt});
+  if(j.historico.length>15)j.historico.shift();
+}
+function registrarGolCarreira(j){
+  j.gols++;
+  if(!j.carreira)j.carreira={jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0};
+  j.carreira.gols++;
+}
+function registrarAssistCarreira(j){
+  j.assistencias++;
+  if(!j.carreira)j.carreira={jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0};
+  j.carreira.assistencias++;
+}
+/* Reputação histórica (item 05) — usada tanto pra destacar os ídolos atuais do elenco
+   quanto pro corte de quem entra pro museu (t.idolos) na aposentadoria. Pesos calibrados
+   pra um título valer bem mais que uma temporada inteira de jogos. */
+function reputacaoJogador(j){
+  const c=j.carreira||{};
+  return (c.jogos||0)*1+(c.gols||0)*4+(c.assistencias||0)*2+(c.titulos||0)*40+(c.classicos||0)*15;
+}
 function gerarJogador(state,pos,base){
   const idade=rnd(17,35);let f=base+rnd(-9,7);if(idade<21)f-=rnd(3,9);if(idade>32)f-=rnd(1,5);f=clamp(f,40,94);
   if(Math.random()<.006)f=clamp(f+rnd(8,16),93,99);
   const nome=Math.random()<.2?pick(APELIDOS):pick(NOMES)+' '+pick(SOBRENOMES);
   const valor=valorJogador(f,idade);
   const personalidade=pickPersonalidade();
-  return {id:++state.seq,nome,pos,idade,forca:f,potencial:idade<=23?clamp(f+rnd(5,25),40,99):f,moral:rnd(60,85),valor,salario:Math.round(valor*.004/1000)*1000,gols:0,assistencias:0,cartoes:0,suspenso:0,lesao:0,lesaoTipo:'',lesoesTotal:0,fragil:false,contrato:rnd(1,4),selecao:0,personalidade,dna:gerarDNA(personalidade)};
+  return {id:++state.seq,nome,pos,idade,forca:f,potencial:idade<=23?clamp(f+rnd(5,25),40,99):f,moral:rnd(60,85),valor,salario:Math.round(valor*.004/1000)*1000,gols:0,assistencias:0,cartoes:0,suspenso:0,lesao:0,lesaoTipo:'',lesoesTotal:0,fragil:false,contrato:rnd(1,4),selecao:0,personalidade,dna:gerarDNA(personalidade),
+    historico:[],carreira:{jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0}};
 }
 function criarSetoresIniciais(capacidadeTotal){
   const setores={};
@@ -429,6 +456,7 @@ function criarPartida(state,g,acresc1,acresc2){
   const narrador=pick(NARRADORES),classico=rivalDe(g.casa)===g.fora;
   const eventos=[{min:0,tipo:'info',txt:preencher(pick(FRASES_INICIO),{time:H.nome,adversario:A.nome}),lado:null}];
   const forma=gerarForma(state,H,A,classico);
+  H.titulares.concat(A.titulares).forEach(id=>{const j=J(state,id);if(!j.carreira)j.carreira={jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0};j.carreira.jogos++;});
   return {g,min:0,gc:0,gf:0,fc:0,ff:0,posse:50,eventos,H:forcaTime(state,H,true,forma),A:forcaTime(state,A,false,forma),fim:false,narrador,classico,forma,
     acresc1:acresc1??rnd(1,4),acresc2:acresc2??rnd(2,6)};
 }
@@ -470,10 +498,10 @@ function minuto(state,p,hooks){
     if(Math.random()<.025)p.eventos.push({min:p.min,tipo:'escanteio',txt:preencher(pick(FRASES_ESCANTEIO),{time:t.nome}),lado:l});
     if(Math.random()<.012){const candImp=emCampo(state,t);if(candImp.length){const a=pick(candImp);
       p.eventos.push({min:p.min,tipo:'impedimento',txt:preencher(pick(FRASES_IMPEDIMENTO),{jogador:a.nome}),lado:l});}}
-    if(Math.random()<.0155*Math.pow(r,2.3)){const a=escolherAutor(state,t);a.gols++;if(l==='c')p.gc++;else p.gf++;
+    if(Math.random()<.0155*Math.pow(r,2.3)){const a=escolherAutor(state,t);registrarGolCarreira(a);if(l==='c')p.gc++;else p.gf++;
       let assist=null;
-      if(Math.random()<.65){const cands=emCampo(state,t).filter(x=>x.id!==a.id);if(cands.length){assist=pick(cands);assist.assistencias++;}}
-      p.eventos.push({min:p.min,tipo:'gol',txt:narrarGol(p,t,a,assist),lado:l});}
+      if(Math.random()<.65){const cands=emCampo(state,t).filter(x=>x.id!==a.id);if(cands.length){assist=pick(cands);registrarAssistCarreira(assist);}}
+      p.eventos.push({min:p.min,tipo:'gol',txt:narrarGol(p,t,a,assist),lado:l,autor:a.id,assistente:assist?assist.id:null});}
     if(Math.random()<.018){const candCartao=emCampo(state,t);if(candCartao.length){const a=pick(candCartao);a.cartoes++;
       if(Math.random()<.08){if(l==='c')p.H.ata*=.9,p.H.def*=.9;else p.A.ata*=.9,p.A.def*=.9;a.suspenso=2;
         const txt=comBordao(p,micNarrador(p,preencher(pick(FRASES_VERMELHO),{jogador:a.nome})+' ('+t.nome+') — joga com um a menos'));
@@ -483,13 +511,13 @@ function minuto(state,p,hooks){
     if(Math.random()<.0009){
       if(hooks&&hooks.interativo&&hooks.interativo(t.id)){hooks.onPenalti(p,l,t);return;}
       const a=escolherAutor(state,t),conv=.76+tr.penalti/500;
-      if(Math.random()<conv){a.gols++;if(l==='c')p.gc++;else p.gf++;p.eventos.push({min:p.min,tipo:'gol',txt:comBordao(p,micNarrador(p,'Pênalti convertido por '+a.nome+' ('+t.nome+')')),lado:l});}
+      if(Math.random()<conv){registrarGolCarreira(a);if(l==='c')p.gc++;else p.gf++;p.eventos.push({min:p.min,tipo:'gol',txt:comBordao(p,micNarrador(p,'Pênalti convertido por '+a.nome+' ('+t.nome+')')),lado:l,autor:a.id});}
       else p.eventos.push({min:p.min,tipo:'penalti_perdido',txt:'Pênalti perdido por '+a.nome+' ('+t.nome+')',lado:l});
     }
     if(Math.random()<.001*(1+tr.falta/100)){
       if(hooks&&hooks.interativo&&hooks.interativo(t.id)){hooks.onFalta(p,l,t);return;}
-      const a=escolherAutor(state,t);a.gols++;if(l==='c')p.gc++;else p.gf++;
-      p.eventos.push({min:p.min,tipo:'gol',txt:comBordao(p,micNarrador(p,'Golaço de falta de '+a.nome+' ('+t.nome+')')),lado:l});
+      const a=escolherAutor(state,t);registrarGolCarreira(a);if(l==='c')p.gc++;else p.gf++;
+      p.eventos.push({min:p.min,tipo:'gol',txt:comBordao(p,micNarrador(p,'Golaço de falta de '+a.nome+' ('+t.nome+')')),lado:l,autor:a.id});
     }
     if(Math.random()<.0035*(1-(t.staff?t.staff.fisico:0)*.15)){const candLesao=emCampo(state,t);if(candLesao.length){const a=pick(candLesao);const dur=rnd(2,12);a.lesao=dur;a.lesaoTipo=pick(['muscular','torção no tornozelo','pancada no joelho','desgaste físico']);
       a.lesoesTotal=(a.lesoesTotal||0)+1;if(a.lesoesTotal>=3&&!a.fragil){a.fragil=true;a.valor=Math.round(a.valor*.85/1e4)*1e4;}
@@ -522,8 +550,8 @@ function resolverCobranca(state,cobranca,tipoKey){
   if(gol){
     if(c.tipo==='falta'&&tipoKey==='cruzamento'){autor=escolherAutor(state,t);txt=info.golTxt.replace('X',autor.nome);}
     else txt=c.tipo==='falta'?info.golTxt.replace('X',batedor.nome):(batedor.nome+' cobrou o pênalti ('+info.nome+') e marcou! GOL!');
-    autor.gols++;if(c.l==='c')p.gc++;else p.gf++;
-    p.eventos.push({min:p.min,tipo:'gol',txt:micNarrador(p,txt),lado:c.l});
+    registrarGolCarreira(autor);if(c.l==='c')p.gc++;else p.gf++;
+    p.eventos.push({min:p.min,tipo:'gol',txt:micNarrador(p,txt),lado:c.l,autor:autor.id});
   }else{
     txt=c.tipo==='falta'?info.forTxt.replace('X',batedor.nome):(batedor.nome+' cobrou o pênalti ('+info.nome+') e '+pick(['o goleiro defendeu!','mandou para fora!','acertou a trave!']));
     p.eventos.push({min:p.min,tipo:c.tipo==='penalti'?'penalti_perdido':'falta_perdida',txt,lado:c.l});
@@ -617,7 +645,14 @@ function novaTemporada(state){
     ['A','B','C','D'].forEach(d=>{
       resumos[conf].tabs[d].forEach((row,i)=>{
         const t=state.times[row.id];
-        if(i===0)t.caixa+=TITULO_PREMIO[d];
+        if(i===0){
+          t.caixa+=TITULO_PREMIO[d];
+          t.titulares.forEach(id=>{const j=J(state,id);if(!j)return;
+            if(!j.carreira)j.carreira={jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0};
+            j.carreira.titulos++;
+            pushHistorico(state,j,'titulo','Campeão da '+CONF_NOME[conf]+' Série '+d+' — temporada '+state.temporada+'.');
+            if(j.dna)j.dna.lealdade=clamp(j.dna.lealdade+5,0,100);});
+        }
         else if(i===1)t.caixa+=VICE_PREMIO[d];
       });
     });
@@ -625,10 +660,23 @@ function novaTemporada(state){
   CONFEDERACOES.forEach(conf=>{resumos[conf].transicoes.forEach(tr=>{tr.caem.forEach(id=>state.times[id].div=tr.inf);tr.sobem.forEach(id=>state.times[id].div=tr.sup);});});
   premiosMundiais(state);
   state.times.forEach(t=>{
+    // Artilheiro da temporada (item 02: "temporada marcante") — precisa rodar ANTES do
+    // reset de j.gols logo abaixo, senão não sobra nada pra medir.
+    const artilheiro=t.jogadores.map(id=>J(state,id)).sort((a,b)=>b.gols-a.gols)[0];
+    if(artilheiro&&artilheiro.gols>=15)pushHistorico(state,artilheiro,'artilheiro_temporada','Artilheiro do '+t.nome+' na temporada '+state.temporada+' com '+artilheiro.gols+' gols.');
     t.jogadores.slice().forEach(id=>{const j=J(state,id);j.idade++;j.gols=0;j.assistencias=0;j.cartoes=0;j.suspenso=0;j.lesao=0;j.lesaoTipo='';j.selecao=0;j.contrato--;
+      if(!j.carreira)j.carreira={jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0};
+      j.carreira.temporadasClube++;
       if(j.idade<24)j.forca+=rnd(1,4);else if(j.idade<30)j.forca+=rnd(-1,2);else j.forca-=rnd(1,4);
       j.forca=clamp(j.forca,35,99);
       if(j.idade>=37){t.jogadores=t.jogadores.filter(x=>x!==id);delete state.jogadores[id];
+        // Museu do clube (item 05): quem se aposenta com reputação alta vira ídolo — a
+        // única forma de preservar a carreira dele depois que o jogador some do state.
+        if(reputacaoJogador(j)>=280){
+          if(!t.idolos)t.idolos=[];
+          t.idolos.push({nome:j.nome,pos:j.pos,jogos:j.carreira.jogos,gols:j.carreira.gols,assistencias:j.carreira.assistencias,titulos:j.carreira.titulos,temporadasClube:j.carreira.temporadasClube,reputacao:reputacaoJogador(j),aposentadoTemporada:state.temporada});
+          if(t.id===state.meuTime)noticia(state,'🏛️ '+j.nome+' se aposentou como um ídolo do '+t.nome+' — entra pra Sala de Ídolos do clube.');
+        }
         const novo=gerarJogador(state,j.pos,t.forca-8);novo.idade=rnd(17,19);novo.time=t.id;state.jogadores[novo.id]=novo;t.jogadores.push(novo.id);
         if(t.id===state.meuTime)noticia(state,j.nome+' se aposentou. O garoto '+novo.nome+' subiu da base.');}
       else if(j.contrato<=0){
@@ -694,6 +742,8 @@ function calcularSocios(t){
 function transferir(state,j,de,para,preco){
   de.jogadores=de.jogadores.filter(id=>id!==j.id);de.titulares=de.titulares.filter(id=>id!==j.id);
   para.jogadores.push(j.id);j.time=para.id;de.caixa+=preco;para.caixa-=preco;
+  pushHistorico(state,j,'transferencia','Transferido do '+de.nome+' para o '+para.nome+' por '+fmt(preco)+'.');
+  if(j.carreira)j.carreira.temporadasClube=0;
   if(de.titulares.length<11)autoEscalar(state,de);
   if(para.id!==state.meuTime)autoEscalar(state,para);
 }
@@ -745,6 +795,7 @@ function convocarSelecao(state){
   if(!cands.length)return;
   const j=pick(cands);j.selecao=rnd(1,2);
   if(m.titulares.includes(j.id))substituirIndisponiveis(state,m);
+  pushHistorico(state,j,'convocacao','Convocado para a Seleção Nacional (temporada '+state.temporada+').');
   noticia(state,j.nome+' foi convocado para a Seleção Nacional! Fica de fora por '+j.selecao+' rodada(s).');
 }
 /* Antes usava confirm() do navegador — travava concluirRodada() num diálogo bloqueante.
@@ -784,6 +835,28 @@ function concluirRodada(state){
     if(!t.financas)t.financas=[];
     t.financas.push({t:state.temporada,r:state.rodada+1,bilheteria,tv,patrocinio,socios,bonusVitoria,sal:sal+custoStaff,caixa:t.caixa});
     if(t.financas.length>40)t.financas=t.financas.slice(-40);
+    /* História individual (item 02) — feito por clube, não só pelo de referência: cada
+       clube só enxerga os próprios gols nesse jogo (filtrados por `lado`), então não corre
+       o risco de contar o mesmo evento duas vezes quando o loop passa pelo adversário. */
+    const meuLado=casa?'c':'f',advGols=casa?jogo.gf:jogo.gc;
+    const meusGols=casa?jogo.gc:jogo.gf;
+    const golsDoTime=(jogo.eventos||[]).filter(e=>e.tipo==='gol'&&e.lado===meuLado&&e.autor);
+    if(golsDoTime.length){
+      if(classicoT&&meusGols>advGols){
+        const adversario=state.times[casa?jogo.fora:jogo.casa];
+        golsDoTime.forEach(e=>{const j=J(state,e.autor);if(!j)return;
+          if(!j.carreira)j.carreira={jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0};
+          j.carreira.classicos++;
+          pushHistorico(state,j,'classico','Marcou no clássico contra o '+adversario.nome+'.');
+          if(j.dna)j.dna.lealdade=clamp(j.dna.lealdade+2,0,100);});
+      }
+      if(meusGols-advGols===1){
+        const j=J(state,golsDoTime[golsDoTime.length-1].autor);
+        if(j)pushHistorico(state,j,'gol_decisivo','Marcou o gol da vitória por '+meusGols+'x'+advGols+'.');
+      }
+      const contagem={};golsDoTime.forEach(e=>contagem[e.autor]=(contagem[e.autor]||0)+1);
+      Object.entries(contagem).forEach(([id,n])=>{if(n>=3){const j=J(state,+id);if(j)pushHistorico(state,j,'hattrick','Fez um hat-trick ('+n+' gols) contra o '+state.times[casa?jogo.fora:jogo.casa].nome+'.');}});
+    }
   });
   const m=meu(state),jm=jogoDoTime(state,m);
   const adv=state.times[jm.casa===m.id?jm.fora:jm.casa];
@@ -829,7 +902,7 @@ return {
   rnd,pick,clamp,fmt,diaDaRodada,rivalDe,gerarClubesConfederacao,
   // estado/mundo
   meu,J,valorJogador,gerarJogador,novoJogo,gerarCalendario,gerarTemporada,noticia,
-  pickPersonalidade,gerarDNA,custoRenovacao,
+  pickPersonalidade,gerarDNA,custoRenovacao,reputacaoJogador,
   // competições
   criarTorneioMataMata,simularJogoCopa,jogarFaseMataMata,jogarTorneio,gerarCopa,
   gerarTorneiosContinentais,gerarMundial,jogarMundial,

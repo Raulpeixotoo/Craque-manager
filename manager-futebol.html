@@ -428,7 +428,10 @@ function migrarSave(st){
       if(j.selecao===undefined)j.selecao=0;
       if(j.lesoesTotal===undefined){j.lesoesTotal=0;j.fragil=false;}
       if(j.potencial===undefined)j.potencial=j.idade<=23?clamp(j.forca+rnd(5,25),40,96):j.forca;
-      if(!j.dna){j.personalidade=Motor.pickPersonalidade();j.dna=Motor.gerarDNA(j.personalidade);}});
+      if(!j.dna){j.personalidade=Motor.pickPersonalidade();j.dna=Motor.gerarDNA(j.personalidade);}
+      if(!j.carreira)j.carreira={jogos:0,gols:0,assistencias:0,titulos:0,classicos:0,temporadasClube:0};
+      if(!j.historico)j.historico=[];});
+    st.times.forEach(t=>{if(!t.idolos)t.idolos=[];});
     return st;}
 function carregarSave(id){try{const s=localStorage.getItem(chaveSave(id));if(!s)return null;const st=migrarSave(JSON.parse(s));if(st)saveAtualId=id;return st;}catch(e){return null;}}
 function iniciarNovoJogo(nome,idTime){
@@ -529,9 +532,14 @@ function personalidadeTag(j){
   const p=Motor.PERSONALIDADES[j.personalidade];
   return p?`<span title="${esc(p.nome)}: ${esc(p.desc)}">${p.emoji}</span>`:'';
 }
+function historicoTag(j){
+  if(!j.historico||!j.historico.length)return '';
+  const ultimos=j.historico.slice(-3).map(h=>'T'+h.temporada+'R'+h.rodada+': '+h.txt).join('\n');
+  return `<span title="${esc(ultimos)}">📜</span>`;
+}
 function linhaJogador(j,extra=''){
   const m=meu(),pot=j.idade>23?'-':m.staff.olheiro>=1?j.potencial:'<span class="muted" title="Contrate um olheiro para revelar">?</span>';
-  return `<tr>${extra}<td>${personalidadeTag(j)} ${esc(j.nome)}${estrelaTag(j.forca)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${pot}</td><td class="r num">${j.moral}</td><td class="r num">${j.gols}</td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(j.valor)}</td><td>${statusJogador(j)}</td><td>${j.contrato}a ${j.contrato<=2?`<button onclick="renovar(${j.id})">Renovar</button>`:''}</td></tr>`;
+  return `<tr>${extra}<td>${personalidadeTag(j)}${historicoTag(j)} ${esc(j.nome)}${estrelaTag(j.forca)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${pot}</td><td class="r num">${j.moral}</td><td class="r num">${j.gols}</td><td class="r">${fmt(j.salario)}</td><td class="r">${fmt(j.valor)}</td><td>${statusJogador(j)}</td><td>${j.contrato}a ${j.contrato<=2?`<button onclick="renovar(${j.id})">Renovar</button>`:''}</td></tr>`;
 }
 function renovar(id){
   const j=J(id),m=meu(),{custo,anos}=Motor.custoRenovacao(j);
@@ -540,17 +548,29 @@ function renovar(id){
   m.caixa-=custo;j.contrato+=anos;j.salario=Math.round(j.salario*1.1/1000)*1000;j.moral=clamp(j.moral+10,0,100);
   noticia('Contrato de '+j.nome+' renovado por '+anos+' anos.');salvar();render();
 }
+function painelIdolos(t){
+  const atuais=t.jogadores.map(J).map(j=>({j,rep:Motor.reputacaoJogador(j)})).filter(x=>x.rep>0).sort((a,b)=>b.rep-a.rep).slice(0,3);
+  const retirados=(t.idolos||[]).slice().sort((a,b)=>b.reputacao-a.reputacao);
+  if(!atuais.length&&!retirados.length)return '';
+  return `<div class="painel" style="margin-top:18px"><h2>🏛️ Ídolos do ${esc(t.nome)}</h2>
+  ${atuais.length?`<p class="muted" style="margin-top:0">Destaques do elenco atual</p><table><tr><th>Nome</th><th>Pos</th><th class="r">Jogos</th><th class="r">Gols</th><th class="r">Títulos</th></tr>
+  ${atuais.map(x=>`<tr><td>${personalidadeTag(x.j)} ${esc(x.j.nome)}</td><td><span class="tag ${x.j.pos}">${x.j.pos}</span></td><td class="r num">${x.j.carreira.jogos}</td><td class="r num">${x.j.carreira.gols}</td><td class="r num">${x.j.carreira.titulos}</td></tr>`).join('')}</table>`:''}
+  ${retirados.length?`<p class="muted">Sala de Ídolos (aposentados)</p><table><tr><th>Nome</th><th>Pos</th><th class="r">Jogos</th><th class="r">Gols</th><th class="r">Títulos</th><th class="r">Aposentou</th></tr>
+  ${retirados.map(x=>`<tr><td>${esc(x.nome)}</td><td><span class="tag ${x.pos}">${x.pos}</span></td><td class="r num">${x.jogos}</td><td class="r num">${x.gols}</td><td class="r num">${x.titulos}</td><td class="r num">T${x.aposentadoTemporada}</td></tr>`).join('')}</table>`:''}
+  </div>`;
+}
 function telaElenco(){
   const m=meu();const js=m.jogadores.map(J).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.forca-a.forca);
   const folha=js.reduce((s,j)=>s+j.salario,0);
   return `<div class="painel"><h2>Elenco — ${js.length} jogadores · folha ${fmt(folha)} por rodada</h2>
   <table><tr><th></th><th>Nome</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Potencial</th><th class="r">Moral</th><th class="r">Gols</th><th class="r">Salário</th><th class="r">Valor</th><th>Status</th><th>Contrato</th></tr>
   ${js.map(j=>linhaJogador(j,`<td>${m.titulares.includes(j.id)?'<b style="color:var(--amarelo)">T</b>':''}</td>`)).join('')}</table>
-  <p class="muted">T = titular · Potencial só é revelado para menores de 24 anos com olheiro contratado (aba Finanças) · Contrato: renovar quando restar 1-2 anos, senão o jogador sai de graça no fim do vínculo · Força: <span class="f4">82+</span> craque, <span class="f3">72+</span> bom, <span class="f2">60+</span> regular.</p></div>
+  <p class="muted">T = titular · Potencial só é revelado para menores de 24 anos com olheiro contratado (aba Finanças) · Contrato: renovar quando restar 1-2 anos, senão o jogador sai de graça no fim do vínculo · Força: <span class="f4">82+</span> craque, <span class="f3">72+</span> bom, <span class="f2">60+</span> regular. · 📜 = tem eventos marcantes na carreira (passe o mouse).</p></div>
   <div class="painel" style="margin-top:18px"><h2>Categoria de base — nível ${m.baseNivel}/3</h2>
   ${m.prospectos.length?`<table><tr><th>Nome</th><th>Pos</th><th class="r">Idade</th><th class="r">Potencial</th><th class="r">Sobe em</th></tr>
   ${m.prospectos.map(J).map(j=>`<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r">${m.staff.olheiro>=1?j.potencial:'?'}</td><td class="r num">${Math.max(0,18-j.idade)} temporada(s)</td></tr>`).join('')}</table>`:
-  '<p class="muted">Nenhum garoto na base no momento. Invista mais na aba Finanças pra aumentar as chances de revelação.</p>'}</div>`;
+  '<p class="muted">Nenhum garoto na base no momento. Invista mais na aba Finanças pra aumentar as chances de revelação.</p>'}</div>
+  ${painelIdolos(m)}`;
 }
 function telaEscalacao(){
   const m=meu(),slots=FORMACOES[m.formacao],c=coords(m.formacao);
