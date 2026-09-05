@@ -120,6 +120,12 @@ const FRASES_GOL_QUENTE=['GOOOOOOOL de {jogador}','Golaço! {jogador} acerta um 
 const FRASES_AMARELO=['Amarelo para {jogador}','O árbitro mostra o cartão amarelo para {jogador}','Falta dura de {jogador}, amarelo'];
 const FRASES_VERMELHO=['Cartão vermelho para {jogador}','Expulso! {jogador} vê o vermelho','Direto pro chuveiro: {jogador} está expulso'];
 const FRASES_LESAO=['{jogador} sentiu e deixou o gramado','{jogador} não aguentou e precisou sair','Preocupação: {jogador} pede substituição'];
+const FRASES_FINALIZACAO_FORA=['{jogador} finaliza, mas a bola sai pela linha de fundo','Que chance! {jogador} manda para fora','Por pouco! {jogador} desperdiça a oportunidade'];
+const FRASES_FINALIZACAO_CIMA=['{jogador} chuta, a bola vai alta','Que exagero! {jogador} manda a bola para as nuvens','A bola sobe, sobe... e vai para fora'];
+const FRASES_DEFESA=['Grande defesa do goleiro do {time}','Defesão! Que reflexo do goleiro do {time}','A bola ia entrando, mas o goleiro do {time} está atento'];
+const FRASES_TRAVE=['Que azar! A bola bate na trave','A bola explode no travessão! Que susto para o {time}','Por centímetros! A trave salva o {time}'];
+const FRASES_ESCANTEIO=['Escanteio para o {time}','Bola pela linha de fundo, escanteio para o {time}'];
+const FRASES_IMPEDIMENTO=['Impedimento! {jogador} estava na frente','A bandeirinha marca o impedimento de {jogador}'];
 const FRASES_INICIO=['A bola rola! {time} recebe o {adversario}','Começa a partida entre {time} e {adversario}','Tudo pronto para {time} x {adversario}'];
 const FRASES_FIM=['Fim de jogo: {time} {gc} x {gf} {adversario}','Apita o árbitro! {time} {gc} x {gf} {adversario}','Termina a partida: {time} {gc} x {gf} {adversario}'];
 const SETORES_ESTADIO={
@@ -331,7 +337,17 @@ function minuto(state,p,hooks){
   p.posse=p.posse*.92+(rH/(rH+rA)*100)*.08;
   const lados=[[rH,H,'c'],[rA,A,'f']];
   for(const [r,t,l] of lados){
-    if(Math.random()<.11*Math.pow(r,1.5)){if(l==='c')p.fc++;else p.ff++;}
+    if(Math.random()<.11*Math.pow(r,1.5)){if(l==='c')p.fc++;else p.ff++;
+      if(Math.random()<.2){const a=escolherAutor(state,t),adversario=l==='c'?A:H,desfecho=pick(['fora','fora','cima','defesa','trave']);
+        let txt;
+        if(desfecho==='fora')txt=preencher(pick(FRASES_FINALIZACAO_FORA),{jogador:a.nome});
+        else if(desfecho==='cima')txt=preencher(pick(FRASES_FINALIZACAO_CIMA),{jogador:a.nome});
+        else if(desfecho==='defesa')txt=preencher(pick(FRASES_DEFESA),{time:adversario.nome});
+        else txt=preencher(pick(FRASES_TRAVE),{time:t.nome});
+        p.eventos.push({min:p.min,tipo:'lance',txt,lado:l});}}
+    if(Math.random()<.025)p.eventos.push({min:p.min,tipo:'escanteio',txt:preencher(pick(FRASES_ESCANTEIO),{time:t.nome}),lado:l});
+    if(Math.random()<.012){const candImp=emCampo(state,t);if(candImp.length){const a=pick(candImp);
+      p.eventos.push({min:p.min,tipo:'impedimento',txt:preencher(pick(FRASES_IMPEDIMENTO),{jogador:a.nome}),lado:l});}}
     if(Math.random()<.0155*Math.pow(r,2.3)){const a=escolherAutor(state,t);a.gols++;if(l==='c')p.gc++;else p.gf++;
       let assist=null;
       if(Math.random()<.65){const cands=emCampo(state,t).filter(x=>x.id!==a.id);if(cands.length){assist=pick(cands);assist.assistencias++;}}

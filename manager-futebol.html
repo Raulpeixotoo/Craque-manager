@@ -271,7 +271,7 @@ function setVelocidade(v){
     else if(p.jogos.A[0].min===45&&!p.intervaloFeito){p.intervaloFeito=true;p.pausado=true;clearInterval(p.timer);}
     render();};
   if(v===0){while(!p.jogos.A[0].fim)todosJogos(p).forEach(minuto);if(p.copa)concluirPartidaCopa();else concluirRodada();render();}
-  else p.timer=setInterval(tick,v===1?260:80);
+  else p.timer=setInterval(tick,v===1?500:260);
 }
 function pausarPartida(){const p=ui.partida;clearInterval(p.timer);p.pausado=true;render();}
 function retomarPartida(){setVelocidade(ui.partida.vel||1);}
@@ -847,8 +847,8 @@ function telaPartida(){
     ${fim?'':`<div class="taticas" style="margin:0 0 10px"><label>Instrução tática <select onchange="mudarEstiloPartida(this.value)">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label></div>`}
     <div class="grid g2" style="gap:18px"><div>
       ${stat('posse de bola',pm.posse,100-pm.posse)}${stat('finalizações',pm.fc,pm.ff)}
-      ${stat('cartões',pm.eventos.filter(e=>e.lado==='c'&&e.tipo!=='gol').length,pm.eventos.filter(e=>e.lado==='f'&&e.tipo!=='gol').length)}
-    </div><div class="eventos">${pm.eventos.slice().reverse().map(e=>`<div><b class="num">${e.min}'</b> ${e.tipo==='gol'?'⚽':e.tipo==='vermelho'?'🟥':e.tipo==='amarelo'?'🟨':e.tipo==='lesao'?'🚑':e.tipo==='penalti_perdido'||e.tipo==='falta_perdida'?'❌':''} ${esc(e.txt)}</div>`).join('')||'<div class="muted">Bola rolando...</div>'}</div></div>
+      ${stat('cartões',pm.eventos.filter(e=>e.lado==='c'&&(e.tipo==='amarelo'||e.tipo==='vermelho')).length,pm.eventos.filter(e=>e.lado==='f'&&(e.tipo==='amarelo'||e.tipo==='vermelho')).length)}
+    </div><div class="eventos">${pm.eventos.slice().reverse().map(e=>`<div><b class="num">${e.min}'</b> ${e.tipo==='gol'?'⚽':e.tipo==='vermelho'?'🟥':e.tipo==='amarelo'?'🟨':e.tipo==='lesao'?'🚑':e.tipo==='penalti_perdido'||e.tipo==='falta_perdida'?'❌':e.tipo==='escanteio'?'🚩':e.tipo==='impedimento'?'🚫':e.tipo==='lance'?'👀':''} ${esc(e.txt)}</div>`).join('')||'<div class="muted">Bola rolando...</div>'}</div></div>
   </div>
   <div class="controles">${fim?`<button class="primario" onclick="ui.partida=null;ui.tela='${telaAoFim}';render()">Continuar</button>`:
     p.cobranca?'':forcado?`<button disabled title="Faça a substituição obrigatória primeiro">🚑 Substituição obrigatória</button>`:`<button ${p.vel===1&&!p.pausado?'disabled':''} onclick="setVelocidade(1)">Normal</button><button ${p.vel===2&&!p.pausado?'disabled':''} onclick="setVelocidade(2)">Rápido</button><button onclick="setVelocidade(0)">Pular para o fim</button><button onclick="${p.pausado?'retomarPartida()':'pausarPartida()'}">${p.pausado?(intervalo?'▶ Iniciar 2º tempo':'▶ Continuar'):'⏸ Pausar e substituir'}</button>`}</div>

@@ -105,7 +105,7 @@ function simularRodadaCompleta() {
   });
 }
 
-const TICK_MS = 260; // mesmo ritmo do "Normal" no jogo solo
+const TICK_MS = 500; // mesmo ritmo do "Normal" no jogo solo (o antigo 260ms virou o "Rápido")
 let partidasAoVivo = null; // array de partidas em andamento, ou null quando não há nenhuma
 let tickHandle = null;
 let naoProntosDaRodada = [];
