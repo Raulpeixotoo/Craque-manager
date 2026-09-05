@@ -181,6 +181,7 @@ function ativarMundo(slug) {
       posse: p.posse, eventos: p.eventos, fim: p.fim,
       pausado: p.pausado, pausadoEm: p.pausadoEm, intervaloFeito: p.intervaloFeito,
       subsUsadas: p.subsUsadas, subForcada: p.subForcada,
+      acresc1: p.acresc1, acresc2: p.acresc2, ataqueTotal: p.ataqueTotal,
     };
   }
 
@@ -235,7 +236,7 @@ function ativarMundo(slug) {
         const lesionado = time.titulares.map(id => Motor.J(mundo, id)).find(j => j.lesao > 0);
         if (lesionado) { p.subForcada[timeId] = lesionado.id; pausar(p); }
       });
-      if (p.min === 45 && !p.intervaloFeito) { p.intervaloFeito = true; pausar(p); }
+      if (p.min === 45 + (p.acresc1 || 0) && !p.intervaloFeito) { p.intervaloFeito = true; pausar(p); }
     });
     if (mudou) nsp.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
     if (partidasAoVivo.every(p => p.fim)) {
@@ -385,13 +386,19 @@ function ativarMundo(slug) {
       return; // nem a nem b sao titulares desse clube -- nada a fazer
     }
     const mandante = p.g.casa === clube.id;
-    if (mandante) p.H = Motor.forcaTime(mundo, clube, true); else p.A = Motor.forcaTime(mundo, clube, false);
+    if (mandante) p.H = Motor.forcaTimeAoVivo(mundo, p, clube, true); else p.A = Motor.forcaTimeAoVivo(mundo, p, clube, false);
   }
 
   function mudarEstiloPartida(clube, p, estilo) {
     clube.estilo = estilo;
     const mandante = p.g.casa === clube.id;
-    if (mandante) p.H = Motor.forcaTime(mundo, clube, true); else p.A = Motor.forcaTime(mundo, clube, false);
+    if (mandante) p.H = Motor.forcaTimeAoVivo(mundo, p, clube, true); else p.A = Motor.forcaTimeAoVivo(mundo, p, clube, false);
+  }
+
+  function ativarAtaqueTotal(clube, p) {
+    if (!Motor.podeAtaqueTotal(p, clube)) throw new Error('Ataque total só pode ser ativado perdendo ou empatando, depois dos 80 minutos.');
+    Motor.ativarAtaqueTotal(mundo, p, clube);
+    Motor.noticia(mundo, '🔥 ' + clube.nome + ' vai com tudo pro ataque nos minutos finais!');
   }
 
   const ACOES = {
@@ -667,6 +674,20 @@ function ativarMundo(slug) {
       salvar();
       nsp.emit('mundo', mundo);
       nsp.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+    });
+
+    socket.on('partidaAtaqueTotal', ({ clubeId }) => {
+      const clube = mundo.times[clubeId];
+      const p = partidaDoClube(clubeId);
+      if (!clube || !p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
+      try {
+        ativarAtaqueTotal(clube, p);
+        salvar();
+        nsp.emit('mundo', mundo);
+        nsp.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+      } catch (e) {
+        socket.emit('erro', e.message);
+      }
     });
 
     socket.on('disconnect', () => console.log('[' + slug + '] Cliente desconectado:', socket.id));

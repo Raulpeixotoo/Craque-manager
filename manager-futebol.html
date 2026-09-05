@@ -169,7 +169,7 @@ function novoJogo(idMeu){state=Motor.novoJogo(idMeu);salvar();}
 function autoEscalar(t){return Motor.autoEscalar(state,t);}
 function emCampo(t){return Motor.emCampo(state,t);}
 function forcaTime(t,mando){return Motor.forcaTime(state,t,mando);}
-function criarPartida(g){return Motor.criarPartida(state,g);}
+function criarPartida(g,acresc1,acresc2){return Motor.criarPartida(state,g,acresc1,acresc2);}
 function simularJogoCopa(a,b){return Motor.simularJogoCopa(state,a,b);}
 function jogarTorneio(torneio,premio,tituloNome){Motor.jogarTorneio(state,torneio,premio,tituloNome);salvar();render();}
 function gerarCopa(){return Motor.gerarCopa(state);}
@@ -258,7 +258,12 @@ function forcarSubstituicao(jogadorId){
 function iniciarRodada(){
   Motor.prepararRodada(state);
   const r=rodadaAtual();
-  ui.partida={jogos:{A:r.A.map(criarPartida),B:r.B.map(criarPartida),C:r.C.map(criarPartida),D:r.D.map(criarPartida)},timer:null,vel:1,pausado:false,subsUsadas:0,intervaloFeito:false,subForcada:null};
+  // Acréscimos sorteados uma vez pra rodada inteira (não por jogo) — os quatro grupos
+  // (A/B/C/D) ticam juntos num timer só, então precisam ficar em lockstep pra "todo mundo
+  // acabou"/"todo mundo no intervalo" continuarem valendo como proxy confiável.
+  const acresc1=rnd(1,4),acresc2=rnd(2,6);
+  const cp=g=>criarPartida(g,acresc1,acresc2);
+  ui.partida={jogos:{A:r.A.map(cp),B:r.B.map(cp),C:r.C.map(cp),D:r.D.map(cp)},timer:null,vel:1,pausado:false,subsUsadas:0,intervaloFeito:false,subForcada:null};
   ui.tela='partida';render();
   setVelocidade(1);
 }
@@ -268,7 +273,7 @@ function setVelocidade(v){
   const tick=()=>{todosJogos(p).forEach(minuto);
     if(p.jogos.A[0].fim){clearInterval(p.timer);if(p.copa)concluirPartidaCopa();else concluirRodada();}
     else if(p.cobranca){clearInterval(p.timer);}
-    else if(p.jogos.A[0].min===45&&!p.intervaloFeito){p.intervaloFeito=true;p.pausado=true;clearInterval(p.timer);}
+    else if(p.jogos.A[0].min===45+(p.jogos.A[0].acresc1||0)&&!p.intervaloFeito){p.intervaloFeito=true;p.pausado=true;clearInterval(p.timer);}
     render();};
   if(v===0){while(!p.jogos.A[0].fim)todosJogos(p).forEach(minuto);if(p.copa)concluirPartidaCopa();else concluirRodada();render();}
   else p.timer=setInterval(tick,v===1?500:260);
@@ -278,7 +283,14 @@ function retomarPartida(){setVelocidade(ui.partida.vel||1);}
 function pmAtual(){const p=ui.partida,m=meu();return todosJogos(p).find(x=>x.g.casa===m.id||x.g.fora===m.id);}
 function recalcularForcaPartida(){
   const m=meu(),pm=pmAtual(),mandante=pm.g.casa===m.id;
-  if(mandante)pm.H=forcaTime(m,true);else pm.A=forcaTime(m,false);
+  if(mandante)pm.H=Motor.forcaTimeAoVivo(state,pm,m,true);else pm.A=Motor.forcaTimeAoVivo(state,pm,m,false);
+}
+function ativarAtaqueTotal(){
+  const m=meu(),pm=pmAtual();
+  if(!Motor.podeAtaqueTotal(pm,m))return;
+  Motor.ativarAtaqueTotal(state,pm,m);
+  noticia('🔥 '+m.nome+' vai com tudo pro ataque nos minutos finais!');
+  salvar();render();
 }
 function mudarEstiloPartida(e){meu().estilo=e;recalcularForcaPartida();salvar();render();}
 function clicarPartida(id){
@@ -823,8 +835,8 @@ function telaFinancas(){
   <tr><td>Público no último jogo em casa</td><td class="r num">${(m.ultimoPublico??0).toLocaleString('pt-BR')}</td></tr>
   <tr><td>Valor do elenco</td><td class="r">${fmt(m.jogadores.reduce((s,id)=>s+J(id).valor,0))}</td></tr></table>
   <p class="muted">Bilheteria só entra em jogos em casa: cada setor tem preço e ocupação próprios — preço mais alto que a referência do setor reduz o público, mais baixo enche o estádio. Se o caixa ficar negativo, venda jogadores.</p></div>
-  <div class="painel"><h2>Movimento por rodada</h2><table><tr><th>Rod.</th><th class="r">Bilheteria</th><th class="r">TV</th><th class="r">Patroc.</th><th class="r">Sócios</th><th class="r">Salários</th><th class="r">Caixa</th></tr>
-  ${f.map(x=>`<tr><td class="num">${x.r}</td><td class="r pos">${fmt(x.bilheteria)}</td><td class="r pos">${fmt(x.tv)}</td><td class="r pos">${fmt(x.patrocinio||0)}</td><td class="r pos">${fmt(x.socios||0)}</td><td class="r neg">-${fmt(x.sal)}</td><td class="r num">${fmt(x.caixa)}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Nenhuma rodada jogada ainda.</td></tr>'}</table></div>
+  <div class="painel"><h2>Movimento por rodada</h2><table><tr><th>Rod.</th><th class="r">Bilheteria</th><th class="r">TV</th><th class="r">Patroc.</th><th class="r">Sócios</th><th class="r">Vitória</th><th class="r">Salários</th><th class="r">Caixa</th></tr>
+  ${f.map(x=>`<tr><td class="num">${x.r}</td><td class="r pos">${fmt(x.bilheteria)}</td><td class="r pos">${fmt(x.tv)}</td><td class="r pos">${fmt(x.patrocinio||0)}</td><td class="r pos">${fmt(x.socios||0)}</td><td class="r ${x.bonusVitoria?'pos':'muted'}">${x.bonusVitoria?fmt(x.bonusVitoria):'-'}</td><td class="r neg">-${fmt(x.sal)}</td><td class="r num">${fmt(x.caixa)}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">Nenhuma rodada jogada ainda.</td></tr>'}</table></div>
   <div class="painel" style="grid-column:1/-1"><h2>Estádio — setores</h2>
   <table><tr><th>Setor</th><th class="r">Lugares</th><th class="r">Preço</th><th class="r">Ocupação (último jogo)</th><th></th></tr>
   ${Object.entries(Motor.SETORES_ESTADIO).map(([k,info])=>{const s=m.setores[k],inc=Math.max(100,Math.round(s.lugares*.12/100)*100),custo=inc*900;
@@ -850,23 +862,35 @@ function telaFinancas(){
   ${m.baseNivel<3?`<button onclick="investirBase()">Investir nível ${m.baseNivel+1} (${fmt((m.baseNivel+1)*1.2e6)})</button>`:'<span class="pos">Nível máximo</span>'}
   </div></div>`;
 }
+function fmtMinutoPartida(pm){
+  const a1=pm.acresc1||0;
+  if(pm.min>90)return '90+'+(pm.min-90)+"'";
+  if(pm.min>45&&pm.min<=45+a1)return '45+'+(pm.min-45)+"'";
+  return pm.min+"'";
+}
 function telaPartida(){
   const p=ui.partida,m=meu();
   const pm=todosJogos(p).find(x=>x.g.casa===m.id||x.g.fora===m.id);
   const H=state.times[pm.g.casa],A=state.times[pm.g.fora],fim=p.jogos.A[0].fim;
+  const acresc1=pm.acresc1||0,acresc2=pm.acresc2||0;
+  const meuAtaqueTotal=pm.ataqueTotal&&pm.ataqueTotal[m.id];
   const stat=(n,a,b)=>{const t=a+b||1;return `<div class="stat"><span class="num r" style="text-align:right">${Math.round(a)}</span><div class="bar"><i style="width:${a/t*100}%"></i><i style="width:${b/t*100}%"></i></div><span class="num">${Math.round(b)}</span><span></span><span class="muted" style="text-align:center">${n}</span></div>`;};
+  // Só o Série do próprio clube — as outras 3 continuam rolando junto (o timer tica todas
+  // ao mesmo tempo), só não aparecem mais na tela pra não poluir com jogos que não são seus.
   const lista=d=>`<div class="painel"><h3>Série ${d} — rodada ${state.rodada+1}</h3><table class="jogos">${p.jogos[d].map(x=>`<tr class="${x===pm?'eu':''}"><td class="r">${linhaTime(x.g.casa)}</td><td class="plc">${x.gc} x ${x.gf}</td><td>${linhaTime(x.g.fora)}</td><td class="muted" style="font-size:11px">${x.eventos.filter(e=>e.tipo==='gol').map(e=>e.min+"'").join(' ')}</td></tr>`).join('')}</table></div>`;
   const ehClassico=state.rivalId!=null&&(pm.g.casa===state.rivalId||pm.g.fora===state.rivalId);
-  const intervalo=!fim&&p.jogos.A[0].min===45&&p.intervaloFeito;
+  const intervalo=!fim&&p.jogos.A[0].min===45+(p.jogos.A[0].acresc1||0)&&p.intervaloFeito;
   const forcado=jogadorForcado();
   const telaAoFim=p.copa?'calendario':(state.fimTemporada?'temporada':'inicio');
   return `<div class="placar">
     ${p.copa?`<div style="text-align:center;color:var(--amarelo);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🏆 ${esc(p.copa.tituloNome)} — ${esc(p.copa.torneio.fase)}</div>`:''}
     ${ehClassico?'<div style="text-align:center;color:var(--amarelo);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🔥 CLÁSSICO</div>':''}
     ${intervalo?'<div class="ok" style="text-align:center;font-family:var(--fd);font-weight:700;font-size:16px">⏱ INTERVALO — aproveite pra mexer no time</div>':''}
-    <div class="linha1"><span>${pm.min<=45?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${pm.min/90*100}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${pm.min}'</span></div>
+    ${meuAtaqueTotal?'<div class="aviso" style="text-align:center;font-family:var(--fd);font-weight:700">🔥 ATAQUE TOTAL — defesa mais vulnerável, ataque muito mais forte</div>':''}
+    <div class="linha1"><span>${pm.min<=45+acresc1?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${Math.min(100,pm.min/(90+acresc2)*100)}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${fmtMinutoPartida(pm)}</span></div>
     <div class="linha2"><div class="time">${linhaTime(H.id)}</div><div class="gols">${pm.gc} x ${pm.gf}</div><div class="time d">${linhaTime(A.id)}</div></div>
-    ${fim?'':`<div class="taticas" style="margin:0 0 10px"><label>Instrução tática <select onchange="mudarEstiloPartida(this.value)">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label></div>`}
+    ${fim?'':`<div class="taticas" style="margin:0 0 10px"><label>Instrução tática <select onchange="mudarEstiloPartida(this.value)">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label>
+    ${Motor.podeAtaqueTotal(pm,m)?`<button onclick="ativarAtaqueTotal()">🔥 Ataque total</button>`:''}</div>`}
     <div class="grid g2" style="gap:18px"><div>
       ${stat('posse de bola',pm.posse,100-pm.posse)}${stat('finalizações',pm.fc,pm.ff)}
       ${stat('cartões',pm.eventos.filter(e=>e.lado==='c'&&(e.tipo==='amarelo'||e.tipo==='vermelho')).length,pm.eventos.filter(e=>e.lado==='f'&&(e.tipo==='amarelo'||e.tipo==='vermelho')).length)}
@@ -876,7 +900,7 @@ function telaPartida(){
     p.cobranca?'':forcado?`<button disabled title="Faça a substituição obrigatória primeiro">🚑 Substituição obrigatória</button>`:`<button ${p.vel===1&&!p.pausado?'disabled':''} onclick="setVelocidade(1)">Normal</button><button ${p.vel===2&&!p.pausado?'disabled':''} onclick="setVelocidade(2)">Rápido</button><button onclick="setVelocidade(0)">Pular para o fim</button><button onclick="${p.pausado?'retomarPartida()':'pausarPartida()'}">${p.pausado?(intervalo?'▶ Iniciar 2º tempo':'▶ Continuar'):'⏸ Pausar e substituir'}</button>`}</div>
   ${!fim&&p.cobranca?painelCobranca():''}
   ${!fim&&p.pausado&&!p.cobranca?painelSubstituicao(m):''}
-  ${p.copa?'':`<div class="grid g2">${lista('A')}${lista('B')}${lista('C')}${lista('D')}</div>`}`;
+  ${p.copa?'':lista(m.div)}`;
 }
 function telaTemporada(){
   const r=resumoTemporada(),m=meu();

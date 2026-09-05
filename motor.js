@@ -99,6 +99,8 @@ function diaDaRodada(r){return (r+1)*(DIAS_ENTRE_RODADAS+1);}
 const CAIXA_TIER={A:[18,40],B:[8,18],C:[3,7],D:[1,3]};
 const CAIXA_BONUS_TEMPORADA={A:5e6,B:2e6,C:1e6,D:.4e6};
 const TITULO_PREMIO={A:8e6,B:4e6,C:2e6,D:1e6};
+const VICE_PREMIO={A:4e6,B:2e6,C:1e6,D:.5e6};
+const BONUS_VITORIA=250000;
 const FORMACOES={
  '4-4-2':['GOL','LAT','ZAG','ZAG','LAT','MEI','VOL','VOL','MEI','ATA','ATA'],
  '4-3-3':['GOL','LAT','ZAG','ZAG','LAT','VOL','MEI','MEI','ATA','ATA','ATA'],
@@ -293,6 +295,25 @@ function autoEscalar(state,t){
   slots.forEach(pos=>{let best=null,bv=-1;disp.forEach(j=>{if(usados.has(j.id))return;const v=rating(j,pos);if(v>bv){bv=v;best=j;}});
     if(!best){best=t.jogadores.map(id=>J(state,id)).find(j=>!usados.has(j.id));}usados.add(best.id);t.titulares.push(best.id);});
 }
+/* Troca só quem ficou indisponível (suspenso/lesionado/convocado), mantendo o resto da
+   escalação exatamente como estava — ao contrário de autoEscalar(), que reconstrói o time
+   inteiro do zero (jogava fora qualquer ajuste manual feito na aba Escalação toda vez que
+   UM jogador qualquer ficava indisponível). Retorna true se trocou alguém. */
+function substituirIndisponiveis(state,t){
+  const slots=FORMACOES[t.formacao];
+  let trocou=false;
+  t.titulares.forEach((id,i)=>{
+    const j=J(state,id);
+    if(!(j.suspenso>0||j.lesao>0||j.selecao>0))return;
+    const usados=new Set(t.titulares);
+    const disp=t.jogadores.map(x=>J(state,x)).filter(x=>!usados.has(x.id)&&!x.suspenso&&!x.lesao&&!x.selecao);
+    if(!disp.length)return;
+    let best=disp[0],bv=rating(best,slots[i]);
+    disp.forEach(x=>{const v=rating(x,slots[i]);if(v>bv){bv=v;best=x;}});
+    t.titulares[i]=best.id;trocou=true;
+  });
+  return trocou;
+}
 function forcaTime(state,t,mando){
   const slots=FORMACOES[t.formacao],est=ESTILOS[t.estilo];let ata=0,na=0,def=0,nd=0;
   t.titulares.forEach((id,i)=>{const j=J(state,id),pos=slots[i],r=rating(j,pos);
@@ -302,13 +323,36 @@ function forcaTime(state,t,mando){
   const bAta=1+tr.passe/500,bGoleiro=1+(t.staff?t.staff.goleiro:0)*.025,bDef=(1+tr.fisico/500)*bGoleiro;
   return {ata:(ata/na)*est.ata*mf*bAta*(mando?1.05:.97),def:(def/nd)*est.def*mf*bDef*(mando?1.05:.97)};
 }
+/* Igual forcaTime, mas reaplica o boost de "ataque total" se o clube já ativou nesta
+   partida — precisa ser usado em todo recálculo DURANTE o jogo (substituição, troca de
+   estilo), senão a substituição/troca apagaria o boost sem querer. */
+function forcaTimeAoVivo(state,p,t,mando){
+  const f=forcaTime(state,t,mando);
+  if(p.ataqueTotal&&p.ataqueTotal[t.id])return{ata:f.ata*1.3,def:f.def*.7};
+  return f;
+}
+function podeAtaqueTotal(p,t){
+  if(p.fim||p.min<80)return false;
+  if(p.ataqueTotal&&p.ataqueTotal[t.id])return false;
+  const casa=p.g.casa===t.id;
+  const meusGols=casa?p.gc:p.gf,advGols=casa?p.gf:p.gc;
+  return meusGols<=advGols;
+}
+function ativarAtaqueTotal(state,p,t){
+  if(!p.ataqueTotal)p.ataqueTotal={};
+  if(p.ataqueTotal[t.id])return;
+  p.ataqueTotal[t.id]=true;
+  const mandante=p.g.casa===t.id;
+  if(mandante)p.H=forcaTimeAoVivo(state,p,t,true);else p.A=forcaTimeAoVivo(state,p,t,false);
+}
 
 /* ============ SIMULAÇÃO ============ */
-function criarPartida(state,g){
+function criarPartida(state,g,acresc1,acresc2){
   const H=state.times[g.casa],A=state.times[g.fora];
   const narrador=pick(NARRADORES),classico=rivalDe(g.casa)===g.fora;
   const eventos=[{min:0,tipo:'info',txt:preencher(pick(FRASES_INICIO),{time:H.nome,adversario:A.nome}),lado:null}];
-  return {g,min:0,gc:0,gf:0,fc:0,ff:0,posse:50,eventos,H:forcaTime(state,H,true),A:forcaTime(state,A,false),fim:false,narrador,classico};
+  return {g,min:0,gc:0,gf:0,fc:0,ff:0,posse:50,eventos,H:forcaTime(state,H,true),A:forcaTime(state,A,false),fim:false,narrador,classico,
+    acresc1:acresc1??rnd(1,4),acresc2:acresc2??rnd(2,6)};
 }
 function emCampo(state,t){return t.titulares.map(id=>J(state,id)).filter(j=>!j.suspenso&&!j.lesao);}
 function escolherAutor(state,t){
@@ -374,7 +418,7 @@ function minuto(state,p,hooks){
       p.eventos.push({min:p.min,tipo:'lesao',txt:preencher(pick(FRASES_LESAO),{jogador:a.nome})+' ('+t.nome+')',lado:l});
       if(hooks&&hooks.interativo&&hooks.interativo(t.id))hooks.onLesao(p,l,t,a);}}
   }
-  if(p.min>=90)finalizar(state,p);
+  if(p.min>=90+(p.acresc2||0))finalizar(state,p);
 }
 function finalizar(state,p){
   p.fim=true;p.g.gc=p.gc;p.g.gf=p.gf;p.g.eventos=p.eventos;
@@ -406,7 +450,7 @@ function resolverCobranca(state,cobranca,tipoKey){
     txt=c.tipo==='falta'?info.forTxt.replace('X',batedor.nome):(batedor.nome+' cobrou o pênalti ('+info.nome+') e '+pick(['o goleiro defendeu!','mandou para fora!','acertou a trave!']));
     p.eventos.push({min:p.min,tipo:c.tipo==='penalti'?'penalti_perdido':'falta_perdida',txt,lado:c.l});
   }
-  if(p.min>=90)finalizar(state,p);
+  if(p.min>=90+(p.acresc2||0))finalizar(state,p);
   return {gol};
 }
 function rodadaAtual(state){const c=state.calendario[meu(state).conf];return {A:c.A[state.rodada],B:c.B[state.rodada],C:c.C[state.rodada],D:c.D[state.rodada]};}
@@ -422,17 +466,13 @@ function resolverRodadasForaneas(state){
    fica só com a parte que monta a tela de partida (ui.partida) e liga o cronômetro. */
 function prepararRodada(state){
   state.times.forEach(t=>{
-    t.jogadores.map(id=>J(state,id)).forEach(j=>{
-      if((j.suspenso>0||j.lesao>0||j.selecao>0)&&t.titulares.includes(j.id)&&t.id!==state.meuTime)autoEscalar(state,t);
-    });
-    if(t.id!==state.meuTime&&Math.random()<.3){t.estilo=pick(Object.keys(ESTILOS));autoEscalar(state,t);}
+    if(t.titulares.some(id=>{const j=J(state,id);return j.suspenso>0||j.lesao>0||j.selecao>0;})){
+      substituirIndisponiveis(state,t);
+      if(t.id===state.meuTime)noticia(state,'Jogador suspenso, lesionado ou convocado foi substituído automaticamente na escalação.');
+    }
+    if(t.id!==state.meuTime&&Math.random()<.3)t.estilo=pick(Object.keys(ESTILOS));
   });
   resolverRodadasForaneas(state);
-  const m=meu(state);
-  if(m.titulares.some(id=>J(state,id).suspenso>0||J(state,id).lesao>0||J(state,id).selecao>0)){
-    autoEscalar(state,m);
-    noticia(state,'Jogador suspenso, lesionado ou convocado foi retirado da escalação automaticamente.');
-  }
 }
 function jogoDoTime(state,t){return state.calendario[t.conf][t.div][state.rodada].find(g=>g.casa===t.id||g.fora===t.id);}
 
@@ -453,7 +493,7 @@ function resumoTemporada(state,conf){
   conf=conf||meu(state).conf;
   const tabs={A:tabela(state,conf,'A'),B:tabela(state,conf,'B'),C:tabela(state,conf,'C'),D:tabela(state,conf,'D')};
   const transicoes=[['A','B'],['B','C'],['C','D']].map(([sup,inf])=>({sup,inf,caem:[tabs[sup][10].id,tabs[sup][11].id],sobem:[tabs[inf][0].id,tabs[inf][1].id]}));
-  return {conf,campeoes:{A:tabs.A[0].id,B:tabs.B[0].id,C:tabs.C[0].id,D:tabs.D[0].id},transicoes,
+  return {conf,tabs,campeoes:{A:tabs.A[0].id,B:tabs.B[0].id,C:tabs.C[0].id,D:tabs.D[0].id},transicoes,
     artilheiro:Object.values(state.jogadores).filter(j=>state.times[j.time].conf===conf).sort((a,b)=>b.gols-a.gols)[0]};
 }
 function premiosMundiais(state){
@@ -493,6 +533,17 @@ function novaTemporada(state){
     if(m.patrocinioContrato){const bonus=Math.round(m.patrocinio*3/1e4)*1e4;if(bonus>0){m.caixa+=bonus;noticia(state,m.patrocinioContrato.empresa+' pagou um bônus de '+fmt(bonus)+' pelo título (cláusula de desempenho).');}}
   }
   else if(posFinal<=6)m.torcida=Math.round(m.torcida*1.02);
+  // Prêmio de campeão/vice — pra TODO clube, não só o de referência (o bônus de torcida/
+  // patrocínio acima continua só pra referência, é flavor de perspectiva única mesmo).
+  CONFEDERACOES.forEach(conf=>{
+    ['A','B','C','D'].forEach(d=>{
+      resumos[conf].tabs[d].forEach((row,i)=>{
+        const t=state.times[row.id];
+        if(i===0)t.caixa+=TITULO_PREMIO[d];
+        else if(i===1)t.caixa+=VICE_PREMIO[d];
+      });
+    });
+  });
   CONFEDERACOES.forEach(conf=>{resumos[conf].transicoes.forEach(tr=>{tr.caem.forEach(id=>state.times[id].div=tr.inf);tr.sobem.forEach(id=>state.times[id].div=tr.sup);});});
   premiosMundiais(state);
   state.times.forEach(t=>{
@@ -570,8 +621,8 @@ function transferir(state,j,de,para,preco){
 }
 function negocioIA(state){
   if(!state.janela.aberta)return;
-  const comp=pick(state.times.filter(t=>t.id!==state.meuTime&&t.caixa>15e6));if(!comp)return;
-  const vend=pick(state.times.filter(t=>t.id!==comp.id&&t.id!==state.meuTime&&t.jogadores.length>18));
+  const comp=pick(state.times.filter(t=>t.id!==state.meuTime&&!t.controlador&&t.caixa>15e6));if(!comp)return;
+  const vend=pick(state.times.filter(t=>t.id!==comp.id&&t.id!==state.meuTime&&!t.controlador&&t.jogadores.length>18));
   const j=vend.jogadores.map(id=>J(state,id)).filter(x=>!vend.titulares.includes(x.id)).sort((a,b)=>b.forca-a.forca)[0];
   if(!j||comp.jogadores.length>=25||comp.caixa<j.valor)return;
   transferir(state,j,vend,comp,j.valor);noticia(state,comp.nome+' contrata '+j.nome+' junto ao '+vend.nome+' por '+fmt(j.valor)+'.');
@@ -592,7 +643,7 @@ function treinar(state,clubeId,tipo){
     if(Math.random()<.03*(1-m.staff.fisico*.2)){const cands=m.jogadores.map(id=>J(state,id)).filter(j=>!j.lesao);
       if(cands.length){const j=pick(cands);const dur=rnd(3,10);j.lesao=dur;j.lesaoTipo=pick(['muscular','torção no tornozelo','pancada no joelho','desgaste físico']);
         j.lesoesTotal=(j.lesoesTotal||0)+1;if(j.lesoesTotal>=3&&!j.fragil){j.fragil=true;j.valor=Math.round(j.valor*.85/1e4)*1e4;}
-        if(m.titulares.includes(j.id))autoEscalar(state,m);}}
+        if(m.titulares.includes(j.id))substituirIndisponiveis(state,m);}}
   }
 }
 function eventoVestiario(state){
@@ -606,7 +657,7 @@ function convocarSelecao(state){
   const m=meu(state),cands=m.jogadores.map(id=>J(state,id)).filter(j=>j.forca>=75&&!j.suspenso&&!j.lesao&&!j.selecao);
   if(!cands.length)return;
   const j=pick(cands);j.selecao=rnd(1,2);
-  if(m.titulares.includes(j.id))autoEscalar(state,m);
+  if(m.titulares.includes(j.id))substituirIndisponiveis(state,m);
   noticia(state,j.nome+' foi convocado para a Seleção Nacional! Fica de fora por '+j.selecao+' rodada(s).');
 }
 /* Antes usava confirm() do navegador — travava concluirRodada() num diálogo bloqueante.
@@ -638,11 +689,13 @@ function concluirRodada(state){
     const rivalT=rivalDe(t.id),classicoT=rivalT!==null&&(jogo.casa===rivalT||jogo.fora===rivalT);
     const bilheteria=calcularBilheteria(t,casa,classicoT&&casa);
     const tv=TV[t.div];const patrocinio=t.patrocinio||0;const socios=calcularSocios(t);
+    const venceu=casa?jogo.gc>jogo.gf:jogo.gf>jogo.gc;
+    const bonusVitoria=venceu?BONUS_VITORIA:0;
     const sal=t.jogadores.reduce((s,id)=>s+J(state,id).salario,0);
     const custoStaff=((t.staff?.fisico||0)+(t.staff?.goleiro||0)+(t.staff?.olheiro||0))*15000;
-    t.caixa+=bilheteria+tv+patrocinio+socios-sal-custoStaff;
+    t.caixa+=bilheteria+tv+patrocinio+socios+bonusVitoria-sal-custoStaff;
     if(!t.financas)t.financas=[];
-    t.financas.push({t:state.temporada,r:state.rodada+1,bilheteria,tv,patrocinio,socios,sal:sal+custoStaff,caixa:t.caixa});
+    t.financas.push({t:state.temporada,r:state.rodada+1,bilheteria,tv,patrocinio,socios,bonusVitoria,sal:sal+custoStaff,caixa:t.caixa});
     if(t.financas.length>40)t.financas=t.financas.slice(-40);
   });
   const m=meu(state),jm=jogoDoTime(state,m);
@@ -656,7 +709,7 @@ function concluirRodada(state){
     else state.classico.e++;
   }
   if(m.caixa<0)noticia(state,'Atenção: o caixa está negativo. Venda jogadores ou reduza a folha.');
-  if(Math.random()<.35)negocioIA(state);
+  for(let i=0;i<rnd(1,3);i++)if(Math.random()<.5)negocioIA(state);
   if(Math.random()<.12)eventoVestiario(state);
   if(Math.random()<.08)convocarSelecao(state);
   if(Math.random()<.15)ofertaRecebida(state);
@@ -682,7 +735,7 @@ return {
   // dados
   NOMES,SOBRENOMES,APELIDOS,POSICOES,ELENCO_BASE,TIMES_BASE,CONFEDERACOES,CONF_NOME,
   CIDADES_MUNDO,SUFIXOS_POR_CONF,TIMES_MUNDO,RODADAS_TEMPORADA,DIAS_ENTRE_RODADAS,TREINO_PONTOS_POR_RODADA,
-  CAIXA_TIER,CAIXA_BONUS_TEMPORADA,TITULO_PREMIO,FORMACOES,ESTILOS,COMPAT,TV,TREINOS,
+  CAIXA_TIER,CAIXA_BONUS_TEMPORADA,TITULO_PREMIO,VICE_PREMIO,BONUS_VITORIA,FORMACOES,ESTILOS,COMPAT,TV,TREINOS,
   STAFF_NOMES,STAFF_DESC,FASES_COPA,CLASSICOS,TIPOS_FALTA,TIPOS_PENALTI,
   SETORES_ESTADIO,EMPRESAS_PATROCINIO,
   // utilidades
@@ -693,7 +746,7 @@ return {
   criarTorneioMataMata,simularJogoCopa,jogarFaseMataMata,jogarTorneio,gerarCopa,
   gerarTorneiosContinentais,gerarMundial,jogarMundial,
   // escalação/força
-  rating,autoEscalar,forcaTime,
+  rating,autoEscalar,forcaTime,forcaTimeAoVivo,podeAtaqueTotal,ativarAtaqueTotal,substituirIndisponiveis,
   // simulação
   criarPartida,emCampo,escolherAutor,minuto,finalizar,resolverCobranca,rodadaAtual,
   resolverRodadasForaneas,prepararRodada,jogoDoTime,

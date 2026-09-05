@@ -376,19 +376,37 @@ function painelSubstituicao(m,pm){
   ${forcado&&!banco.length?`<button style="margin-top:8px" onclick="liberarSemSubstituir()">Continuar com o time reduzido</button>`:''}
   </div>`;
 }
+function fmtMinutoPartida(pm){
+  const a1=pm.acresc1||0;
+  if(pm.min>90)return '90+'+(pm.min-90)+"'";
+  if(pm.min>45&&pm.min<=45+a1)return '45+'+(pm.min-45)+"'";
+  return pm.min+"'";
+}
+function podeAtaqueTotal(pm,m){
+  if(pm.fim||pm.min<80)return false;
+  if(pm.ataqueTotal&&pm.ataqueTotal[m.id])return false;
+  const casa=pm.casaId===m.id;
+  const meusGols=casa?pm.gc:pm.gf,advGols=casa?pm.gf:pm.gc;
+  return meusGols<=advGols;
+}
+function acaoAtaqueTotal(){acaoPartida('partidaAtaqueTotal');}
 function telaPartidaAoVivo(pm){
   const H=state.times[pm.casaId],A=state.times[pm.foraId];
   const m=meu();
   const osDoisHumanos=H.controlador&&A.controlador;
-  const intervalo=!pm.fim&&pm.pausado&&pm.intervaloFeito&&pm.min<=45;
+  const acresc1=pm.acresc1||0,acresc2=pm.acresc2||0;
+  const intervalo=!pm.fim&&pm.pausado&&pm.intervaloFeito&&pm.min<=45+acresc1;
   const forcado=jogadorForcado();
+  const meuAtaqueTotal=pm.ataqueTotal&&pm.ataqueTotal[m.id];
   const stat=(n,a,b)=>{const t=a+b||1;return `<div class="stat"><span class="num r" style="text-align:right">${Math.round(a)}</span><div class="bar"><i style="width:${a/t*100}%"></i><i style="width:${b/t*100}%"></i></div><span class="num">${Math.round(b)}</span><span></span><span class="muted" style="text-align:center">${n}</span></div>`;};
   return `<div class="placar">
     <div style="text-align:center;color:var(--vermelho);font-family:var(--fd);font-weight:700;font-size:15px;margin-bottom:6px">🔴 AO VIVO${osDoisHumanos?' — humano x humano':''}</div>
     ${intervalo?'<div class="ok" style="text-align:center;font-family:var(--fd);font-weight:700;font-size:16px">⏱ INTERVALO — aproveite pra mexer no time</div>':''}
-    <div class="linha1"><span>${pm.min<=45?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${pm.min/90*100}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${pm.min}'</span></div>
+    ${meuAtaqueTotal?'<div class="aviso" style="text-align:center;font-family:var(--fd);font-weight:700">🔥 ATAQUE TOTAL — defesa mais vulnerável, ataque muito mais forte</div>':''}
+    <div class="linha1"><span>${pm.min<=45+acresc1?'1º tempo':'2º tempo'}</span><div class="tempo"><i style="width:${Math.min(100,pm.min/(90+acresc2)*100)}%"></i></div><span class="num" style="font-size:18px;color:var(--amarelo)">${fmtMinutoPartida(pm)}</span></div>
     <div class="linha2"><div class="time">${linhaTime(H.id)}</div><div class="gols">${pm.gc} x ${pm.gf}</div><div class="time d">${linhaTime(A.id)}</div></div>
-    ${pm.fim?'':`<div class="taticas" style="margin:0 0 10px"><label>Instrução tática <select onchange="mudarEstiloPartida(this.value)">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label></div>`}
+    ${pm.fim?'':`<div class="taticas" style="margin:0 0 10px"><label>Instrução tática <select onchange="mudarEstiloPartida(this.value)">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label>
+    ${podeAtaqueTotal(pm,m)?`<button onclick="acaoAtaqueTotal()">🔥 Ataque total</button>`:''}</div>`}
     <div class="grid g2" style="gap:18px"><div>
       ${stat('posse de bola',pm.posse,100-pm.posse)}${stat('finalizações',pm.fc,pm.ff)}
       ${stat('cartões',pm.eventos.filter(e=>e.lado==='c'&&(e.tipo==='amarelo'||e.tipo==='vermelho')).length,pm.eventos.filter(e=>e.lado==='f'&&(e.tipo==='amarelo'||e.tipo==='vermelho')).length)}
@@ -704,8 +722,8 @@ function telaFinancas(){
   <tr><td>Público no último jogo em casa</td><td class="r num">${(m.ultimoPublico??0).toLocaleString('pt-BR')}</td></tr>
   <tr><td>Valor do elenco</td><td class="r">${fmt(m.jogadores.reduce((s,id)=>s+J(id).valor,0))}</td></tr></table>
   <p class="muted">Bilheteria só entra em jogos em casa: cada setor tem preço e ocupação próprios — preço mais alto que a referência do setor reduz o público, mais baixo enche o estádio. Se o caixa ficar negativo, venda jogadores.</p></div>
-  <div class="painel"><h2>Movimento por rodada</h2><table><tr><th>Rod.</th><th class="r">Bilheteria</th><th class="r">TV</th><th class="r">Patroc.</th><th class="r">Sócios</th><th class="r">Salários</th><th class="r">Caixa</th></tr>
-  ${f.map(x=>`<tr><td class="num">${x.r}</td><td class="r pos">${fmt(x.bilheteria)}</td><td class="r pos">${fmt(x.tv)}</td><td class="r pos">${fmt(x.patrocinio||0)}</td><td class="r pos">${fmt(x.socios||0)}</td><td class="r neg">-${fmt(x.sal)}</td><td class="r num">${fmt(x.caixa)}</td></tr>`).join('')||'<tr><td colspan="7" class="muted">Nenhuma rodada jogada ainda.</td></tr>'}</table></div>
+  <div class="painel"><h2>Movimento por rodada</h2><table><tr><th>Rod.</th><th class="r">Bilheteria</th><th class="r">TV</th><th class="r">Patroc.</th><th class="r">Sócios</th><th class="r">Vitória</th><th class="r">Salários</th><th class="r">Caixa</th></tr>
+  ${f.map(x=>`<tr><td class="num">${x.r}</td><td class="r pos">${fmt(x.bilheteria)}</td><td class="r pos">${fmt(x.tv)}</td><td class="r pos">${fmt(x.patrocinio||0)}</td><td class="r pos">${fmt(x.socios||0)}</td><td class="r ${x.bonusVitoria?'pos':'muted'}">${x.bonusVitoria?fmt(x.bonusVitoria):'-'}</td><td class="r neg">-${fmt(x.sal)}</td><td class="r num">${fmt(x.caixa)}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">Nenhuma rodada jogada ainda.</td></tr>'}</table></div>
   <div class="painel" style="grid-column:1/-1"><h2>Estádio — setores</h2>
   <table><tr><th>Setor</th><th class="r">Lugares</th><th class="r">Preço</th><th class="r">Ocupação (último jogo)</th><th></th></tr>
   ${Object.entries(Motor.SETORES_ESTADIO).map(([k,info])=>{const s=m.setores[k],inc=Math.max(100,Math.round(s.lugares*.12/100)*100),custo=inc*900;
