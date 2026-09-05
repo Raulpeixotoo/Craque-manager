@@ -265,6 +265,7 @@ function render(){
       <div><span>Rodada</span><b class="num">${Math.min(state.rodada+1,RODADAS_TEMPORADA)}/${RODADAS_TEMPORADA}</b></div>
       <div><span>Caixa</span><b class="num ${m.caixa<0?'neg':''}">${fmt(m.caixa)}</b></div>
       <div><span>Moral</span><b class="num">${m.moral}</b></div>
+      ${state.rodadaEstado.status==='lobby'&&!state.fimTemporada?`<div><span>Rodada começa em</span><b class="num" id="contagem">${fmtContagem(state.rodadaEstado.timeoutAt-Date.now())}</b></div>`:''}
     </div>
     ${state.fimTemporada?`<button class="primario" onclick="ui.tela='temporada';render()">Ver fim de temporada</button>`:emAndamento?'<button class="primario" disabled>🔴 Rodada rolando...</button>':''}
   </header>
@@ -403,7 +404,6 @@ function telaLobby(m){
   const humanos=state.times.filter(t=>t.controlador);
   const prontos=state.rodadaEstado.prontos;
   const euEstouPronto=prontos.includes(m.id);
-  const faltam=Math.max(0,state.rodadaEstado.timeoutAt-Date.now());
   return `<div class="painel" style="margin-top:18px">
     <h3>Lobby da rodada — ${prontos.length}/${humanos.length} prontos</h3>
     <div class="times" style="margin-bottom:10px">${humanos.map(t=>`
@@ -411,7 +411,7 @@ function telaLobby(m){
       <div><b>${esc(t.nome)}</b><small>${esc(t.controlador.nome)} · ${prontos.includes(t.id)?'✔️ pronto':'aguardando'}</small></div></div>`).join('')}</div>
     <button class="primario" onclick="ficarPronto(${!euEstouPronto})">${euEstouPronto?'Cancelar pronto':'Ficar pronto'}</button>
     <button onclick="forcarInicio()">Forçar início agora</button>
-    <p class="muted" style="margin-top:8px">Se ninguém forçar, a rodada roda sozinha em <b id="contagem">${fmtContagem(faltam)}</b> — quem não confirmou entra com a escalação que já estava.</p>
+    <p class="muted" style="margin-top:8px">Se ninguém forçar, a rodada roda sozinha quando a contagem no topo da tela zerar — quem não confirmou entra com a escalação que já estava.</p>
   </div>`;
 }
 function statusJogador(j){

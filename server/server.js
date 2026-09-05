@@ -35,7 +35,7 @@ const MUNDOS_DIR = path.join(__dirname, 'mundos');
 if (!fs.existsSync(MUNDOS_DIR)) fs.mkdirSync(MUNDOS_DIR, { recursive: true });
 const TIMEOUT_LOBBY_MS = 5 * 60 * 1000; // 5 min sem todo mundo pronto -> força sozinho
 const TREINO_PONTOS_POR_RODADA = Motor.TREINO_PONTOS_POR_RODADA; // orçamento de treino de cada clube, renovado a cada rodada — mesma constante do solo
-const TICK_MS = 500; // mesmo ritmo do "Normal" no jogo solo (o antigo 260ms virou o "Rápido")
+const TICK_MS = 1000; // multiplayer não tem seletor de velocidade — 90min de jogo em ~90s reais
 const PAUSA_TIMEOUT_MS = 45 * 1000;
 
 function rodadaEstadoPadrao() {
