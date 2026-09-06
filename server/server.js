@@ -612,6 +612,14 @@ function ativarMundo(slug) {
       }
     });
 
+    socket.on('chatMensagem', ({ clubeId, msg }) => {
+      const time = mundo.times[clubeId];
+      if (!time || time.controlador === null) { socket.emit('erro', 'Reivindique um clube antes de falar no chat.'); return; }
+      const texto = String(msg || '').trim().slice(0, 300);
+      if (!texto) return;
+      nsp.emit('chatMensagem', { nome: time.controlador.nome, msg: texto });
+    });
+
     socket.on('forcarInicio', () => resolverRodadaAgora());
 
     socket.on('avancarTemporada', () => {
