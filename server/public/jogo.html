@@ -83,6 +83,18 @@ td.r,th.r{text-align:right}
 .jog.sel .cam{outline:3px solid var(--amarelo);outline-offset:2px}
 .jog.fora .nome{color:var(--amarelo)}
 .banco tr.sel td{background:rgba(245,197,24,.25)}
+.banco-pausa{background:rgba(255,255,255,.04);border-top:1px solid var(--linha);padding:10px 0 2px}
+.banco-pausa h4{margin:0 0 8px;color:var(--branco);font-family:var(--fd);font-size:16px}
+.banco-pausa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,180px));justify-content:center;gap:6px}
+.banco-pausa-grupo{margin-top:10px;padding-top:7px;border-top:1px solid var(--linha)}
+.banco-pausa-grupo:first-child{margin-top:0;border-top:0}
+.banco-pausa-grupo h5{margin:0 0 5px;color:var(--muted);font-family:var(--fd);font-size:13px;text-transform:uppercase}
+.reserva-pausa{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:7px;width:100%;min-height:48px;text-align:left;padding:5px 7px;background:var(--painel);border-color:var(--linha)}
+.reserva-pausa:hover,.reserva-pausa.sel{background:rgba(245,197,24,.16);border-color:var(--amarelo)}
+.reserva-pausa .mini-cam{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--fd);font-weight:700;border:1px solid rgba(255,255,255,.6)}
+.reserva-pausa .reserva-nome{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.reserva-pausa .reserva-pos{display:block;color:var(--muted);font-size:10px}
+.reserva-pausa .reserva-forca{font-family:var(--fd);font-size:17px;font-weight:700}
 .taticas{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
 /* partida */
 .placar{background:linear-gradient(180deg,#153428,#0f2a20);border:1px solid var(--linha);border-radius:6px;padding:14px 18px}
@@ -392,17 +404,17 @@ function campoPausa(m){
 }
 function painelSubstituicao(m,pm){
   const banco=m.jogadores.map(J).filter(j=>!m.titulares.includes(j.id)&&!j.suspenso&&!j.lesao&&!j.selecao).sort((a,b)=>b.forca-a.forca);
-  const linha=j=>`<tr class="clic ${ui.sel===j.id?'sel':''}" onclick="clicarPartida(${j.id})"><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td></tr>`;
+  const reserva=j=>`<button class="reserva-pausa ${ui.sel===j.id?'sel':''}" onclick="clicarPartida(${j.id})"><span class="mini-cam" style="background:${m.cor1};color:${m.cor2}">${j.forca}</span><span class="reserva-nome">${esc(j.nome)}<small class="reserva-pos">${j.pos} · ${j.idade} anos</small></span><b class="reserva-forca ${classeForca(j.forca)}">${j.forca}</b></button>`;
+  const grupos=[['Goleiros',['GOL']],['Zagueiros e laterais',['ZAG','LAT']],['Meio-campos',['VOL','MEI']],['Atacantes',['ATA']]];
   const forcado=jogadorForcado();
   const usadas=(pm.subsUsadas&&pm.subsUsadas[m.id])||0;
   return `<div class="painel" style="margin:12px 0;${forcado?'border-color:var(--vermelho)':''}">
   ${forcado?`<div class="aviso">🚑 Substituição obrigatória: <b>${esc(forcado.nome)}</b> está lesionado e precisa sair.${banco.length?'':' Não há ninguém disponível no banco — o time vai jogar com um a menos.'}</div>`:''}
   <label>Formação durante a partida <select onchange="mudarFormacaoPausa(this.value)"><optgroup label="Formações prontas">${Object.keys(FORMACOES).map(f=>`<option value="${f}" ${f===m.formacao?'selected':''}>${f}</option>`).join('')}</optgroup>${(m.formacoesCustom||[]).length?`<optgroup label="Minhas formações">${m.formacoesCustom.map(f=>`<option value="custom:${f.id}" ${m.formacao==='custom:'+f.id?'selected':''}>${esc(f.nome)}</option>`).join('')}</optgroup>`:''}</select></label>
   <h3>Substituições — ${5-usadas} restantes</h3>
-  <div style="margin:0 0 14px">${campoPausa(m)}</div>
-  <div class="grid g2"><div><p class="muted" style="margin:0 0 4px">Em campo</p><table>${m.titulares.map(id=>linha(J(id))).join('')}</table></div>
-  <div><p class="muted" style="margin:0 0 4px">Banco</p><table>${banco.map(linha).join('')||'<tr><td class="muted">Sem opções no banco.</td></tr>'}</table></div></div>
-  <p class="muted" style="margin-top:6px">Clique num titular e depois num jogador do banco para substituir, ou em dois titulares para trocar posições.</p>
+  <div style="width:100%;max-width:540px;margin:0 auto 14px">${campoPausa(m)}</div>
+  <div class="banco-pausa"><h4>Banco de reservas</h4>${grupos.map(([nome,pos])=>{const lista=banco.filter(j=>pos.includes(j.pos));return lista.length?`<section class="banco-pausa-grupo"><h5>${nome}</h5><div class="banco-pausa-grid">${lista.map(reserva).join('')}</div></section>`:''}).join('')||'<p class="muted">Sem opções no banco.</p>'}</div>
+  <p class="muted" style="margin-top:6px">Clique em um jogador do campo e depois em uma opção do banco. [POS] indica a posição.</p>
   ${forcado&&!banco.length?`<button style="margin-top:8px" onclick="liberarSemSubstituir()">Continuar com o time reduzido</button>`:''}
   </div>`;
 }
