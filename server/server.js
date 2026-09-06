@@ -109,7 +109,14 @@ function criarMundoNovo(nomeExibicao) {
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// setHeaders sem cache pro HTML: o jogo é uma SPA que só busca o JS de novo com um reload
+// de verdade — sem isso, quem deixa a aba aberta entre reinícios do servidor (o socket
+// reconecta sozinho) continua rodando o JS antigo sem perceber.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 app.get('/motor.js', (req, res) => res.sendFile(path.join(__dirname, '..', 'motor.js')));
 app.get('/manager-futebol.html', (req, res) => res.sendFile(path.join(__dirname, '..', 'manager-futebol.html')));
 app.get('/api/mundos', (req, res) => res.json(listarMundosDisco()));
