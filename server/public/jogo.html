@@ -35,8 +35,9 @@ header .info small{color:var(--muted)}
 header .stats{margin-left:auto;display:flex;gap:22px;text-align:right}
 header .stats div span{display:block;color:var(--muted);font-size:11px}
 header .stats .num{font-size:22px}
-nav{display:flex;gap:2px;padding:0 18px;background:var(--painel);border-bottom:1px solid var(--linha);overflow-x:auto}
+nav{position:relative;display:flex;justify-content:center;gap:2px;padding:0 90px 0 18px;background:var(--painel);border-bottom:1px solid var(--linha);overflow-x:auto}
 nav button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:10px 14px;font-family:var(--fd);font-size:17px;font-weight:500;color:var(--muted)}
+nav button:last-child{position:absolute;right:18px;top:0}
 nav button.ativo{color:var(--branco);border-bottom-color:var(--amarelo)}
 nav button:hover{color:var(--branco)}
 main{padding:18px;flex:1;max-width:1200px;width:100%;margin:0 auto}
@@ -304,7 +305,7 @@ function render(){
     ${state.fimTemporada?`<button class="primario" onclick="ui.tela='temporada';render()">Ver fim de temporada</button>`:emAndamento?'<button class="primario" disabled>🔴 Rodada rolando...</button>':''}
   </header>
   <nav>${telas.map(([id,n])=>`<button class="${ui.tela===id?'ativo':''}" onclick="ui.tela='${id}';ui.sel=null;render()">${n}</button>`).join('')}
-    <button style="margin-left:auto" onclick="location.href='/'">🏠 Início</button></nav>
+    <button onclick="location.href='/'">Sair</button></nav>
   <main>${erro?`<div class="aviso">${esc(erro)}</div>`:''}${({inicio:telaInicio,elenco:telaElenco,escalacao:telaEscalacao,calendario:telaCalendario,tabela:telaTabela,mercado:telaMercado,financas:telaFinancas,temporada:telaTemporada})[ui.tela]()}</main>`;
   erro=null;
 }
