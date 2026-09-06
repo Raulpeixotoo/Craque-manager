@@ -446,7 +446,24 @@ function telaPartidaAoVivo(pm){
     forcado?`<button disabled title="Faça a substituição obrigatória primeiro">🚑 Substituição obrigatória</button>`:
     `<button onclick="${pm.pausado?'retomarPartida()':'pausarPartida()'}">${pm.pausado?(intervalo?'▶ Iniciar 2º tempo':'▶ Continuar'):'⏸ Pausar e substituir'}</button>`}</div>
   ${!pm.fim&&pm.pausado?`<p class="muted" style="margin:-8px 0 8px">Se ninguém mexer, a partida volta a rolar sozinha em pouco menos de 1 minuto.</p>`:''}
-  ${!pm.fim&&pm.pausado?painelSubstituicao(m,pm):''}`;
+  ${!pm.fim&&pm.pausado?painelSubstituicao(m,pm):''}
+  ${listaDivisao(pm)}`;
+}
+// Placar dos outros jogos da sua divisão nesta rodada, atualizando junto com a sua partida
+// ao vivo: jogo entre dois IAs já foi resolvido de uma vez (gc/gf preenchidos no calendário
+// assim que a rodada começou — só o(s) confronto(s) com humano ficam de verdade ao vivo),
+// e jogo com humano ainda rolando é buscado em partidasAoVivo pelo placar/minuto atuais.
+function linhaJogoDivisao(g,pm){
+  const meuJogo=g.casa===pm.casaId&&g.fora===pm.foraId;
+  let placar='—';
+  if(g.gc!==null)placar=g.gc+' x '+g.gf;
+  else{const ao=partidasAoVivo.find(p=>p.casaId===g.casa&&p.foraId===g.fora);if(ao)placar=`${ao.gc} x ${ao.gf} <span class="muted" style="font-size:10px">${fmtMinutoPartida(ao)}</span>`;}
+  return `<tr class="${meuJogo?'eu':''}"><td class="r">${linhaTime(g.casa)}</td><td class="plc">${placar}</td><td>${linhaTime(g.fora)}</td></tr>`;
+}
+function listaDivisao(pm){
+  const m=meu(),jogos=(state.calendario[m.conf]&&state.calendario[m.conf][m.div]&&state.calendario[m.conf][m.div][state.rodada])||[];
+  if(!jogos.length)return'';
+  return `<div class="painel" style="margin-top:12px"><h3>Série ${m.div} — rodada ${state.rodada+1}</h3><table class="jogos">${jogos.map(g=>linhaJogoDivisao(g,pm)).join('')}</table></div>`;
 }
 function telaLobby(m){
   const humanos=state.times.filter(t=>t.controlador);
