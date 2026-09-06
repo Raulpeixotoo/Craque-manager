@@ -122,10 +122,20 @@ app.post('/api/mundos', (req, res) => {
     res.status(400).json({ erro: e.message });
   }
 });
+app.delete('/api/mundos/:slug', (req, res) => {
+  const slug = req.params.slug;
+  const caminho = caminhoMundo(slug);
+  if (!fs.existsSync(caminho)) { res.status(404).json({ erro: 'Mundo não encontrado.' }); return; }
+  const parar = mundosControles.get(slug);
+  if (parar) parar();
+  fs.unlinkSync(caminho);
+  res.json({ sucesso: true });
+});
 
 const servidorHttp = http.createServer(app);
 const io = new Server(servidorHttp);
 const mundosAtivos = new Set(); // slugs cujo namespace/lógica já foi montado
+const mundosControles = new Map(); // slug -> função que desliga timers/sockets do mundo antes de apagar o arquivo
 
 // Monta toda a lógica de um mundo específico — lobby, rodadas, partidas ao vivo, ações —
 // isolada num namespace próprio ("/mundo/<slug>"), com seu próprio estado em memória
@@ -705,6 +715,16 @@ function ativarMundo(slug) {
     });
 
     socket.on('disconnect', () => console.log('[' + slug + '] Cliente desconectado:', socket.id));
+  });
+
+  // Registrado pra apagar o mundo poder desligar timers/sockets ANTES de remover o arquivo
+  // (sem isso, um setTimeout/setInterval pendente ia tentar ler um arquivo que não existe mais).
+  mundosControles.set(slug, () => {
+    clearTimeout(timeoutHandle);
+    clearInterval(tickHandle);
+    nsp.disconnectSockets(true);
+    mundosAtivos.delete(slug);
+    mundosControles.delete(slug);
   });
 
   agendarTimeout();

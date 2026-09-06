@@ -37,6 +37,8 @@ a.mundo:hover{border-color:var(--amarelo)}
 a.mundo b{font-family:var(--fd);font-size:16px}
 a.mundo small{display:block;color:var(--muted);margin-top:2px}
 .aviso{background:rgba(224,83,63,.15);border:1px solid var(--vermelho);padding:8px 12px;border-radius:4px;margin:10px 0}
+.btn-apagar{margin-left:12px;border-color:var(--vermelho);color:var(--vermelho);background:transparent;flex-shrink:0}
+.btn-apagar:hover{background:var(--vermelho);color:var(--branco)}
 </style>
 </head>
 <body>
@@ -70,6 +72,7 @@ function render(){
       ${mundos.length?mundos.map(m=>`
         <a class="mundo" href="/jogo.html?m=${encodeURIComponent(m.slug)}">
           <div><b>${esc(m.nome)}</b><small>Temporada ${m.temporada} · rodada ${m.rodada}${m.fimTemporada?' · fim de temporada':''} · ${m.humanos} jogador(es)</small></div>
+          <button class="btn-apagar" onclick="event.preventDefault();event.stopPropagation();apagarMundo('${m.slug}','${esc(m.nome).replace(/'/g,"\\'")}')" ${carregando?'disabled':''}>🗑️ Apagar</button>
         </a>`).join(''):'<p class="muted">Nenhum mundo criado ainda — crie o primeiro acima.</p>'}
     </div>
   </div>`;
@@ -86,6 +89,17 @@ async function criarMundo(){
     const dados=await r.json();
     if(!r.ok){erro=dados.erro||'Erro ao criar mundo.';carregando=false;render();return;}
     location.href='/jogo.html?m='+encodeURIComponent(dados.slug);
+  }catch(e){erro='Não consegui falar com o servidor.';carregando=false;render();}
+}
+async function apagarMundo(slug,nome){
+  if(!confirm('Apagar o mundo "'+nome+'" pra sempre? Todo o progresso dele (clubes, elencos, temporadas) some e não tem como desfazer.'))return;
+  carregando=true;erro=null;render();
+  try{
+    const r=await fetch('/api/mundos/'+encodeURIComponent(slug),{method:'DELETE'});
+    const dados=await r.json();
+    if(!r.ok){erro=dados.erro||'Erro ao apagar mundo.';carregando=false;render();return;}
+    carregando=false;
+    await carregarMundos();
   }catch(e){erro='Não consegui falar com o servidor.';carregando=false;render();}
 }
 render();
