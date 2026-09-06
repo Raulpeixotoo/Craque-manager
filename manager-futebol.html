@@ -476,7 +476,45 @@ function migrarSave(st){
       if(!j.historico)j.historico=[];});
     st.times.forEach(t=>{if(!t.idolos)t.idolos=[];if(!t.formacoesCustom)t.formacoesCustom=[];if(!t.escudo)t.escudo=Motor.gerarEscudo(t);Motor.garantirLaterais(st,t);});
     return st;}
-function carregarSave(id){try{const s=localStorage.getItem(chaveSave(id));if(!s)return null;const st=migrarSave(JSON.parse(s));if(st)saveAtualId=id;return st;}catch(e){return null;}}
+/* Nunca deixa uma migração quebrada apagar ou sobrescrever o save de verdade: o JSON cru
+   original fica intacto em localStorage até o jogador salvar de novo por cima (salvar()
+   só grava quando chamado); aqui, antes de devolver o state migrado, guardamos uma cópia
+   crua de segurança (1 por save, sobrescrita a cada carregamento) — se uma mudança futura
+   no formato dos dados quebrar a migração de um jeito que só aparece depois de já ter
+   salvo por cima, ainda dá pra recuperar o estado de antes da migração a partir dela. */
+function chaveBackup(id){return 'craque_manager_backup_'+id;}
+function carregarSave(id){
+  try{
+    const s=localStorage.getItem(chaveSave(id));if(!s)return null;
+    try{localStorage.setItem(chaveBackup(id),s);}catch(e){}
+    const st=migrarSave(JSON.parse(s));if(st)saveAtualId=id;return st;
+  }catch(e){console.error('Falha ao carregar/migrar save '+id+':',e);return null;}
+}
+/* Mensagem certa pra quando "Continuar" falha — nunca manda apagar por padrão. Distingue
+   os 3 motivos possíveis: save realmente velho demais pro formato atual (o único caso em
+   que apagar faz sentido), JSON ilegível de verdade, ou (o mais comum se isso aparecer do
+   nada) um bug numa migração — nesse caso os dados continuam intactos no localStorage,
+   só não sabemos ler ainda, e apagar seria perder progresso por um bug meu, não do save. */
+function diagnosticoSave(id){
+  try{
+    const s=localStorage.getItem(chaveSave(id));
+    if(!s)return 'Não encontrei os dados dessa partida no navegador.';
+    const raw=JSON.parse(s);
+    if(!raw.versaoMundo||raw.versaoMundo<2)return 'Essa partida é de uma versão muito antiga do jogo e não é mais compatível. Esse é o único caso em que dá pra apagar sem perder nada recuperável.';
+    return 'Não consegui abrir essa partida — parece um bug ao carregar (não é culpa do seu save). NÃO apague: os dados continuam salvos no navegador. Abra o console (F12) pra ver o erro técnico e me avise pra eu corrigir a migração.';
+  }catch(e){return 'O arquivo salvo dessa partida está com o JSON corrompido (não dá nem pra ler a estrutura). Ainda assim, evite apagar até ter certeza — dá pra tentar recuperar copiando o valor de "'+chaveSave(id)+'" do localStorage antes.';}
+}
+function temBackupSave(id){try{return !!localStorage.getItem(chaveBackup(id));}catch(e){return false;}}
+function restaurarBackupSave(id){
+  if(!confirm('Restaurar essa partida pra como ela estava antes da última tentativa de abrir? Isso substitui o save atual por essa cópia.'))return;
+  try{
+    const b=localStorage.getItem(chaveBackup(id));
+    if(!b){alert('Não achei nenhum backup pra essa partida.');return;}
+    localStorage.setItem(chaveSave(id),b);
+    alert('Backup restaurado. Clique em Continuar de novo.');
+    render();
+  }catch(e){alert('Não consegui restaurar: '+e.message);}
+}
 function iniciarNovoJogo(nome,idTime){
   const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   saveAtualId=id;
@@ -532,7 +570,8 @@ function telaMenu(){
   ${saves.length?`<h2 style="margin-top:24px">Suas partidas</h2>
   <div class="times">${saves.map(s=>`
     <div class="tcard" style="cursor:default"><div><b>${esc(s.nome)}</b><small>criada em ${new Date(s.criadoEm).toLocaleDateString('pt-BR')}</small></div>
-    <div style="margin-left:auto;display:flex;gap:6px"><button onclick="const st=carregarSave('${s.id}');if(st){state=st;ui.tela='inicio';render();}else{alert('Essa partida é de uma versão antiga e não é compatível. Apague e comece uma nova.');}">Continuar</button>
+    <div style="margin-left:auto;display:flex;gap:6px"><button onclick="const st=carregarSave('${s.id}');if(st){state=st;ui.tela='inicio';render();}else{alert(diagnosticoSave('${s.id}'));}">Continuar</button>
+    ${temBackupSave(s.id)?`<button title="Restaura essa partida pra como estava antes da última vez que tentou abrir" onclick="restaurarBackupSave('${s.id}')">↺ Backup</button>`:''}
     <button onclick="apagarSave('${s.id}')">Apagar</button></div></div>`).join('')}</div>`:''}
   <h2 style="margin-top:24px">Começar novo jogo</h2>
   <p class="muted">Nome da partida</p>
