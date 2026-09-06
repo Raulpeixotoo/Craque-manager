@@ -37,6 +37,7 @@ const TIMEOUT_LOBBY_MS = 5 * 60 * 1000; // 5 min sem todo mundo pronto -> força
 const TREINO_PONTOS_POR_RODADA = Motor.TREINO_PONTOS_POR_RODADA; // orçamento de treino de cada clube, renovado a cada rodada — mesma constante do solo
 const TICK_MS = 1000; // multiplayer não tem seletor de velocidade — 90min de jogo em ~90s reais
 const PAUSA_TIMEOUT_MS = 45 * 1000;
+const TIMEOUT_DECISAO_TEMPORADA_MS = 60 * 1000;
 
 function rodadaEstadoPadrao() {
   return { status: 'lobby', prontos: [], timeoutAt: Date.now() + TIMEOUT_LOBBY_MS };
@@ -62,7 +63,13 @@ function migrarMundo(mundo) {
     // clube passou a ter o próprio, senão todo humano via o extrato de outra pessoa
     // no "Movimento por rodada" da aba Finanças.
     if (!t.financas) t.financas = (t.id === mundo.meuTime && mundo.financas) ? mundo.financas : [];
+    if (!Array.isArray(t.titulos)) t.titulos = [];
+    else t.titulos = t.titulos.map((titulo, i) => typeof titulo === 'string' ? { id: 'legado-' + i + '-' + titulo, nome: titulo, temporada: mundo.temporada } : titulo);
+    if (!t.carreiraTecnico) t.carreiraTecnico = { reputacao: 50, historico: [] };
+    if (t.pedidoPendente === undefined) t.pedidoPendente = null;
+    if (t.ofertaPendente === undefined) t.ofertaPendente = null;
   });
+  if (!mundo.decisaoTemporada) mundo.decisaoTemporada = null;
   Object.values(mundo.jogadores).forEach(j => {
     if (!j.dna) { j.personalidade = Motor.pickPersonalidade(); j.dna = Motor.gerarDNA(j.personalidade); }
     if (!j.carreira) j.carreira = { jogos: 0, gols: 0, assistencias: 0, titulos: 0, classicos: 0, temporadasClube: 0 };
@@ -117,7 +124,6 @@ app.use(express.static(path.join(__dirname, 'public'), {
     if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
   },
 }));
-app.get('/motor.js', (req, res) => res.sendFile(path.join(__dirname, '..', 'motor.js')));
 app.get('/manager-futebol.html', (req, res) => res.sendFile(path.join(__dirname, '..', 'manager-futebol.html')));
 app.get('/api/mundos', (req, res) => res.json(listarMundosDisco()));
 app.post('/api/mundos', (req, res) => {
@@ -157,6 +163,7 @@ function ativarMundo(slug) {
   let partidasAoVivo = null; // array de partidas em andamento, ou null quando não há nenhuma
   let tickHandle = null;
   let naoProntosDaRodada = [];
+  let decisaoTemporadaHandle = null;
 
   function salvar() {
     fs.writeFileSync(caminhoMundo(slug), JSON.stringify(mundo));
@@ -164,6 +171,51 @@ function ativarMundo(slug) {
 
   function timesHumanos() {
     return mundo.times.filter(t => t.controlador !== null);
+  }
+
+  function registrarTitulo(clubeId, id, nome) {
+    const clube = mundo.times[clubeId];
+    if (!clube) return;
+    if (!clube.titulos) clube.titulos = [];
+    if (!clube.titulos.some(t => t.id === id)) clube.titulos.unshift({ id, nome, temporada: mundo.temporada });
+  }
+
+  function sincronizarTitulosEliminatorios() {
+    const copa = mundo.copa;
+    if (copa && copa.campeao != null) registrarTitulo(copa.campeao, 'copa-' + mundo.temporada, 'Copa Nacional — ' + Motor.CONF_NOME[mundo.times[copa.campeao].conf]);
+    Object.entries(mundo.continentais || {}).forEach(([conf, torneio]) => {
+      if (torneio && torneio.campeao != null) registrarTitulo(torneio.campeao, 'continental-' + mundo.temporada + '-' + conf, 'Copa Continental — ' + Motor.CONF_NOME[conf]);
+    });
+    if (mundo.mundial && mundo.mundial.campeao != null) registrarTitulo(mundo.mundial.campeao, 'mundial-' + mundo.temporada, 'Mundial de Clubes');
+  }
+
+  function gerarEventosDoClube(clube) {
+    const J = id => Motor.J(mundo, id);
+    if (!clube.pedidoPendente && Math.random() < .12) {
+      const melhores = {};
+      clube.jogadores.map(J).forEach(j => { if (!melhores[j.pos] || j.forca > melhores[j.pos]) melhores[j.pos] = j.forca; });
+      const candidatos = clube.jogadores.map(J).filter(j => j.personalidade === 'lider' || j.personalidade === 'leal' ? j.moral < 50 : j.moral < 70 || (j.personalidade === 'estrela' && !clube.titulares.includes(j.id) && j.forca >= melhores[j.pos] - 3));
+      if (candidatos.length) { const j = Motor.pick(candidatos); clube.pedidoPendente = { jogadorId: j.id, aumento: Math.round(j.salario * .25 / 1000) * 1000 }; }
+    }
+    if (!clube.ofertaPendente && mundo.janela.aberta && clube.jogadores.length > 16 && Math.random() < .15) {
+      const candidatos = clube.jogadores.map(J).filter(j => !clube.titulares.includes(j.id) || Math.random() < .3);
+      if (candidatos.length) { const j = Motor.pick(candidatos), comprador = Motor.pick(mundo.times.filter(t => t.id !== clube.id && t.jogadores.length < 25 && t.caixa > j.valor * .8)); if (comprador) clube.ofertaPendente = { jogadorId: j.id, compradorId: comprador.id, oferta: Math.round(j.valor * Motor.rnd(85, 115) / 100 / 1e4) * 1e4 }; }
+    }
+  }
+
+  function votarAvancoTemporada(clubeId) {
+    const clube = mundo.times[clubeId];
+    if (!clube || !clube.controlador) throw new Error('Reivindique um clube antes de votar.');
+    if (!mundo.decisaoTemporada) {
+      mundo.decisaoTemporada = { aprovadores: [], timeoutAt: Date.now() + TIMEOUT_DECISAO_TEMPORADA_MS };
+      clearTimeout(decisaoTemporadaHandle);
+      decisaoTemporadaHandle = setTimeout(() => { if (mundo.fimTemporada) { mundo.decisaoTemporada = null; avancarTemporada(); } }, TIMEOUT_DECISAO_TEMPORADA_MS);
+    }
+    if (!mundo.decisaoTemporada.aprovadores.includes(clubeId)) mundo.decisaoTemporada.aprovadores.push(clubeId);
+    if (timesHumanos().every(t => mundo.decisaoTemporada.aprovadores.includes(t.id))) {
+      clearTimeout(decisaoTemporadaHandle); mundo.decisaoTemporada = null; avancarTemporada(); return true;
+    }
+    salvar(); nsp.emit('mundo', mundo); return false;
   }
 
   function agendarTimeout() {
@@ -354,6 +406,11 @@ function ativarMundo(slug) {
     simularRodadaCompleta();
     avancarCompeticoesEliminatorias();
     Motor.concluirRodada(mundo); // aqui dentro mundo.rodada já avança pra próxima
+    const referencia = mundo.times[mundo.meuTime];
+    if (referencia) { if (mundo.pedidoPendente && !referencia.pedidoPendente) referencia.pedidoPendente = mundo.pedidoPendente; if (mundo.ofertaPendente && !referencia.ofertaPendente) referencia.ofertaPendente = mundo.ofertaPendente; }
+    mundo.pedidoPendente = null; mundo.ofertaPendente = null;
+    timesHumanos().forEach(gerarEventosDoClube);
+    sincronizarTitulosEliminatorios();
     decairTreinoEDarPontos();
     const rodadaSeguinte = mundo.rodada;
     mundo.rodada = rodadaJogada; // Motor.noticia() rotula com mundo.rodada — volta pro valor certo
@@ -461,6 +518,7 @@ function ativarMundo(slug) {
     },
     renovar: (clube, p) => {
       const j = Motor.J(mundo, p.jogadorId);
+      if (!j || !clube.jogadores.includes(j.id)) throw new Error('Jogador não pertence ao seu clube.');
       const { custo, anos } = Motor.custoRenovacao(j);
       if (clube.caixa < custo) throw new Error('Caixa insuficiente para renovar.');
       clube.caixa -= custo; j.contrato += anos; j.salario = Math.round(j.salario * 1.1 / 1000) * 1000; j.moral = Motor.clamp(j.moral + 10, 0, 100);
@@ -505,18 +563,18 @@ function ativarMundo(slug) {
       Motor.noticia(mundo, clube.nome + ': comissão técnica reforçada (' + p.area + ' nível ' + clube.staff[p.area] + ').');
     },
     resolverPedido: (clube, p) => {
-      if (clube.id !== mundo.meuTime || !mundo.pedidoPendente) return;
-      const ped = mundo.pedidoPendente, j = Motor.J(mundo, ped.jogadorId);
+      if (!clube.pedidoPendente) return;
+      const ped = clube.pedidoPendente, j = Motor.J(mundo, ped.jogadorId);
       if (p.aceitar) { j.salario += ped.aumento; j.moral = Motor.clamp(j.moral + 20, 0, 100); Motor.noticia(mundo, clube.nome + ' aceitou o pedido de aumento de ' + j.nome + '.'); }
       else { j.moral = Motor.clamp(j.moral - 15, 0, 100); Motor.noticia(mundo, j.nome + ' ficou insatisfeito após a recusa do pedido de aumento (' + clube.nome + ').'); }
-      mundo.pedidoPendente = null;
+      clube.pedidoPendente = null;
     },
     resolverOferta: (clube, p) => {
-      if (clube.id !== mundo.meuTime || !mundo.ofertaPendente) return;
-      const of = mundo.ofertaPendente, j = Motor.J(mundo, of.jogadorId), comp = mundo.times[of.compradorId];
+      if (!clube.ofertaPendente) return;
+      const of = clube.ofertaPendente, j = Motor.J(mundo, of.jogadorId), comp = mundo.times[of.compradorId];
       if (p.aceitar) { Motor.transferir(mundo, j, clube, comp, of.oferta); Motor.noticia(mundo, j.nome + ' vendido ao ' + comp.nome + ' por ' + Motor.fmt(of.oferta) + ' (oferta recebida).'); }
       else Motor.noticia(mundo, clube.nome + ' recusou a oferta de ' + Motor.fmt(of.oferta) + ' do ' + comp.nome + ' por ' + j.nome + '.');
-      mundo.ofertaPendente = null;
+      clube.ofertaPendente = null;
     },
     comprar: (clube, p) => {
       if (!mundo.janela.aberta) throw new Error('A janela de transferências está fechada.');
@@ -602,8 +660,25 @@ function ativarMundo(slug) {
   // (ver memória do projeto). Isso ainda não está 100% por perspectiva, mas destrava todo
   // mundo pra seguir jogando em vez de ficar preso na tela de fim de temporada.
   function avancarTemporada() {
+    clearTimeout(decisaoTemporadaHandle); mundo.decisaoTemporada = null;
     const divAntes = {};
     timesHumanos().forEach(t => { divAntes[t.id] = t.div; });
+    Motor.CONFEDERACOES.forEach(conf => {
+      const resumo = Motor.resumoTemporada(mundo, conf);
+      ['A', 'B', 'C', 'D'].forEach(div => {
+        const campeao = resumo.campeoes[div];
+        registrarTitulo(campeao, 'liga-' + mundo.temporada + '-' + conf + '-' + div, Motor.CONF_NOME[conf] + ' Série ' + div);
+      });
+    });
+    timesHumanos().forEach(t => {
+      const posicaoFinal = Motor.posicao(mundo, t.id);
+      const foiCampeao = posicaoFinal === 1;
+      const carreira = t.carreiraTecnico || (t.carreiraTecnico = { reputacao: 50, historico: [] });
+      carreira.reputacao = Motor.clamp(carreira.reputacao + (foiCampeao ? 14 : posicaoFinal <= 4 ? 8 : posicaoFinal <= 8 ? 3 : -4), 0, 100);
+      carreira.historico.unshift({ temporada: mundo.temporada, posicao: posicaoFinal, divisao: t.div, clubeNome: t.nome });
+      carreira.historico = carreira.historico.slice(0, 12);
+    });
+    sincronizarTitulosEliminatorios();
     Motor.novaTemporada(mundo);
     const ordem = ['A', 'B', 'C', 'D'];
     timesHumanos().forEach(t => {
@@ -663,9 +738,20 @@ function ativarMundo(slug) {
 
     socket.on('forcarInicio', () => resolverRodadaAgora());
 
-    socket.on('avancarTemporada', () => {
+    socket.on('avancarTemporada', ({ clubeId }) => {
       if (!mundo.fimTemporada) { socket.emit('erro', 'A temporada ainda não terminou.'); return; }
-      avancarTemporada();
+      try { votarAvancoTemporada(clubeId); } catch (e) { socket.emit('erro', e.message); }
+    });
+
+    socket.on('trocarClube', ({ clubeId, novoClubeId }) => {
+      const atual = mundo.times[clubeId], novo = mundo.times[novoClubeId];
+      if (!mundo.fimTemporada) { socket.emit('erro', 'A troca de clube só pode acontecer no fim da temporada.'); return; }
+      if (!atual || !atual.controlador || !novo || novo.controlador) { socket.emit('erro', 'Troca de clube inválida.'); return; }
+      novo.controlador = atual.controlador;
+      atual.controlador = null;
+      mundo.rodadaEstado.prontos = mundo.rodadaEstado.prontos.filter(id => id !== atual.id);
+      Motor.noticia(mundo, novo.controlador.nome + ' deixou o ' + atual.nome + ' e assumiu o ' + novo.nome + '.');
+      salvar(); nsp.emit('mundo', mundo);
     });
 
     socket.on('acao', ({ clubeId, tipo, params }) => {

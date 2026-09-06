@@ -1039,6 +1039,8 @@ function telaPartida(){
 }
 function telaTemporada(){
   const r=resumoTemporada(),m=meu();
+  const vencendo=m.jogadores.map(J).filter(j=>j&&j.contrato<=1).map(j=>({j,custo:Motor.custoRenovacao(j,false).custo}));
+  const renovacoes=vencendo.length?`<div class="painel" style="margin-top:20px"><h2>Contratos para renovar</h2><p class="aviso">Estes jogadores ficam sem contrato na virada e saem do clube se não forem renovados agora.</p><table><tr><th>Nome</th><th>Pos</th><th class="r">Força</th><th class="r">Salário</th><th></th></tr>${vencendo.map(({j,custo})=>`<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.salario)}</td><td><button ${m.caixa<custo?'disabled':''} onclick="renovar(${j.id})">Renovar (${fmt(custo)})</button></td></tr>`).join('')}</table>${vencendo.some(({custo})=>m.caixa<custo)?'<p class="muted">Botões desativados indicam que o caixa não cobre a renovação.</p>':''}</div>`:'';
   return `<div class="painel" style="max-width:700px;margin:0 auto"><h1 style="color:var(--amarelo)">Fim da temporada ${state.temporada}</h1>
   <p class="muted">${CONF_NOME[m.conf]}</p>
   <table style="margin:14px 0">
@@ -1049,6 +1051,7 @@ function telaTemporada(){
   ${r.transicoes.some(tr=>tr.caem.includes(m.id))?'<div class="aviso">Seu time foi rebaixado.</div>':''}
   ${r.transicoes.some(tr=>tr.sobem.includes(m.id))?'<div class="ok">Acesso garantido pra divisão de cima!</div>':''}
   <p class="muted">Na virada, os jogadores envelhecem: jovens evoluem, veteranos caem e quem passa dos 36 se aposenta.</p>
+  ${renovacoes}
   <button class="primario" onclick="novaTemporada()">Continuar no ${esc(m.nome)} — iniciar temporada ${state.temporada+1}</button>
   <h3 style="margin-top:20px">Mercado de trabalho</h3>
   <p class="muted">Reputação do técnico: <b class="num">${state.tecnico.reputacao}/100</b>. Clubes mais fortes e de divisões superiores exigem mais reputação. Seu histórico e seus títulos acompanham você.</p>

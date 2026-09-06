@@ -58,6 +58,8 @@ td.r,th.r{text-align:right}
 .f1{color:var(--muted)}.f2{color:var(--branco)}.f3{color:#7ee081}.f4{color:var(--amarelo)}
 .cor{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin-right:6px;border:1px solid rgba(255,255,255,.3)}
 .escudo{border:2px solid rgba(255,255,255,.35)}
+.escudo-svg{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;flex:none}
+.escudo-svg svg{display:block;width:100%;height:100%}
 /* menu */
 .menu{max-width:900px;margin:40px auto}
 .menu h1{font-size:64px;color:var(--amarelo);letter-spacing:1px}
@@ -248,7 +250,7 @@ function coords(form){const linhas=form.split('-').map(Number),n=linhas.length,p
 
 function resolverPedido(aceitar){acao('resolverPedido',{aceitar});}
 function painelPedido(){
-  const ped=state.pedidoPendente;if(!ped||meu().id!==state.meuTime)return'';
+  const ped=meu().pedidoPendente;if(!ped)return'';
   const j=J(ped.jogadorId);
   return `<div class="painel" style="border-color:var(--amarelo);margin-bottom:18px"><h3>💬 Pedido do elenco</h3>
   <p>${esc(j.nome)} está insatisfeito e pede aumento de salário.</p>
@@ -263,7 +265,7 @@ function painelPedido(){
 }
 function resolverOferta(aceitar){acao('resolverOferta',{aceitar});}
 function painelOferta(){
-  const of=state.ofertaPendente;if(!of||meu().id!==state.meuTime)return'';
+  const of=meu().ofertaPendente;if(!of)return'';
   const j=J(of.jogadorId),comp=state.times[of.compradorId];
   return `<div class="painel" style="border-color:var(--amarelo);margin-bottom:18px"><h3>💰 Oferta recebida</h3>
   <p>${esc(comp.nome)} oferece <b>${fmt(of.oferta)}</b> por <b>${esc(j.nome)}</b>${estrelaTag(j.forca)}.</p>
@@ -290,10 +292,10 @@ function render(){
   if(!state){app.innerHTML='<main><p class="muted">Conectando ao servidor...</p></main>';return;}
   const m=meu();
   if(!m){app.innerHTML=telaEntrar();erro=null;return;}
-  const telas=[['inicio','Início'],['elenco','Elenco'],['escalacao','Escalação'],['calendario','Treino'],['tabela','Tabela'],['mercado','Mercado'],['financas','Finanças']];
+  const telas=[['inicio','Início'],['elenco','Elenco'],['escalacao','Escalação'],['calendario','Treino'],['tabela','Tabela'],['mercado','Mercado'],['financas','Finanças'],['tecnico','Carreira']];
   const emAndamento=state.rodadaEstado.status==='em_andamento';
   app.innerHTML=`<header>
-    <div class="escudo" style="background:${m.cor1};border-color:${m.cor2}"></div>
+    <div class="escudo">${Motor.renderEscudo(m,30)}</div>
     <div class="info"><h1 style="font-size:24px">${esc(m.nome)}</h1><small>${esc(m.cidade)} · ${CONF_NOME[m.conf]} Série ${m.div} · ${posicao(m.id)}º lugar · ${esc(m.controlador.nome)} · ${esc(state.nomeMundo||'')}</small></div>
     <div class="stats">
       <div><span>Temporada</span><b class="num">${state.temporada}</b></div>
@@ -306,7 +308,7 @@ function render(){
   </header>
   <nav>${telas.map(([id,n])=>`<button class="${ui.tela===id?'ativo':''}" onclick="ui.tela='${id}';ui.sel=null;render()">${n}</button>`).join('')}
     <button onclick="location.href='/'">Sair</button></nav>
-  <main>${erro?`<div class="aviso">${esc(erro)}</div>`:''}${({inicio:telaInicio,elenco:telaElenco,escalacao:telaEscalacao,calendario:telaCalendario,tabela:telaTabela,mercado:telaMercado,financas:telaFinancas,temporada:telaTemporada})[ui.tela]()}</main>`;
+  <main>${erro?`<div class="aviso">${esc(erro)}</div>`:''}${({inicio:telaInicio,elenco:telaElenco,escalacao:telaEscalacao,calendario:telaCalendario,tabela:telaTabela,mercado:telaMercado,financas:telaFinancas,tecnico:telaTecnico,temporada:telaTemporada})[ui.tela]()}</main>`;
   erro=null;
 }
 function telaEntrar(){
@@ -328,7 +330,7 @@ function telaEntrar(){
   <p class="muted">Divisão</p>
   <div class="taticas">${divs.map(d=>`<button class="${ui.menuDiv===d?'primario':''}" onclick="ui.menuDiv='${d}';render()">Série ${d}</button>`).join('')}</div>
   <div class="times">${times.map(t=>`
-    <div class="tcard ${t.controlador?'ocupado':'livre'}" ${t.controlador?'':`onclick="entrar(${t.id})"`}><div class="escudo" style="background:${t.cor1};border-color:${t.cor2}"></div>
+    <div class="tcard ${t.controlador?'ocupado':'livre'}" ${t.controlador?'':`onclick="entrar(${t.id})"`}><div class="escudo">${Motor.renderEscudo(t,26)}</div>
     <div><b>${esc(t.nome)}</b><small>${esc(t.cidade)} · força ${t.forca} · ${t.controlador?('ocupado por '+esc(t.controlador.nome)):'livre'}</small></div></div>`).join('')}</div>
   </div>`;
 }
@@ -364,7 +366,7 @@ function telaInicio(){
     <button style="margin-top:8px" onclick="ui.tela='tabela';render()">Ver tabela completa</button></div>
     ${state.rivalId!=null?`<div class="painel" style="margin-top:18px"><h3>🔥 Clássico</h3><p class="muted" style="margin:0">Rival: <b>${esc(state.times[state.rivalId].nome)}</b></p><p style="margin:6px 0 0">Retrospecto: <span class="pos">${state.classico.v}V</span> ${state.classico.e}E <span class="neg">${state.classico.d}D</span></p></div>`:''}
     ${state.premiosTemporada.length?`<div class="painel" style="margin-top:18px"><h3>Prêmios da temporada passada</h3>${state.premiosTemporada.map(p=>`<div>🏅 <b>${p.nome}</b> — ${esc(p.jogadorNome)} <span class="muted">(${esc(p.timeNome)})</span></div>`).join('')}</div>`:''}
-    ${state.titulos.length?`<div class="painel" style="margin-top:18px"><h3>Títulos</h3>${state.titulos.map(t=>`<div>🏆 ${t}</div>`).join('')}</div>`:''}
+    ${(m.titulos||[]).length?`<div class="painel" style="margin-top:18px"><h3>Títulos</h3>${m.titulos.map(t=>`<div>🏆 ${esc(t.nome)} <span class="muted">(T${t.temporada})</span></div>`).join('')}</div>`:''}
   </div></div>`;
 }
 /* Congela a última partida ao vivo do meu clube assim que ela termina, até eu clicar
@@ -485,7 +487,7 @@ function telaLobby(m){
   return `<div class="painel" style="margin-top:18px">
     <h3>Lobby da rodada — ${prontos.length}/${humanos.length} prontos</h3>
     <div class="times" style="margin-bottom:10px">${humanos.map(t=>`
-      <div class="tcard" style="${prontos.includes(t.id)?'':'opacity:.6'}"><div class="escudo" style="background:${t.cor1};border-color:${t.cor2}"></div>
+      <div class="tcard" style="${prontos.includes(t.id)?'':'opacity:.6'}"><div class="escudo">${Motor.renderEscudo(t,26)}</div>
       <div><b>${esc(t.nome)}</b><small>${esc(t.controlador.nome)} · ${prontos.includes(t.id)?'✔️ pronto':'aguardando'}</small></div></div>`).join('')}</div>
     <button class="primario" onclick="ficarPronto(${!euEstouPronto})">${euEstouPronto?'Cancelar pronto':'Ficar pronto'}</button>
     <button onclick="forcarInicio()">Forçar início agora</button>
@@ -842,8 +844,15 @@ function telaFinancas(){
   ${m.baseNivel<3?`<button onclick="investirBase()">Investir nível ${m.baseNivel+1} (${fmt((m.baseNivel+1)*1.2e6)})</button>`:'<span class="pos">Nível máximo</span>'}
   </div></div>`;
 }
+function telaTecnico(){
+  const m=meu(),c=m.carreiraTecnico||{reputacao:50,historico:[]};
+  return `<div class="painel" style="max-width:700px;margin:0 auto"><h1>Carreira de técnico</h1><p class="muted">${esc(m.controlador.nome)} no comando do ${esc(m.nome)}</p><div class="grid g2"><div><span class="muted">Reputação</span><b class="num" style="display:block;font-size:28px;color:var(--amarelo)">${c.reputacao}/100</b></div><div><span class="muted">Títulos</span><b class="num" style="display:block;font-size:28px">${(m.titulos||[]).length}</b></div></div><h3 style="margin-top:20px">Histórico</h3>${c.historico.length?`<table><tr><th>Temporada</th><th>Clube</th><th>Série</th><th class="r">Posição</th></tr>${c.historico.map(h=>`<tr><td>T${h.temporada}</td><td>${esc(h.clubeNome)}</td><td>${h.divisao}</td><td class="r">${h.posicao}º</td></tr>`).join('')}</table>`:'<p class="muted">O histórico será registrado ao terminar sua primeira temporada no multiplayer.</p>'}</div>`;
+}
 function telaTemporada(){
   const r=resumoTemporada(),m=meu();
+  const vencendo=m.jogadores.map(J).filter(j=>j&&j.contrato<=1).map(j=>({j,custo:Motor.custoRenovacao(j,false).custo}));
+  const livres=state.times.filter(t=>!t.controlador&&t.id!==m.id).sort((a,b)=>b.forca-a.forca);
+  const renovacoes=vencendo.length?`<div class="painel" style="margin-top:20px"><h2>Contratos para renovar</h2><p class="aviso">Estes jogadores ficam sem contrato na virada e saem do clube se não forem renovados agora.</p><table><tr><th>Nome</th><th>Pos</th><th class="r">Força</th><th class="r">Salário</th><th></th></tr>${vencendo.map(({j,custo})=>`<tr><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r">${fmt(j.salario)}</td><td><button ${m.caixa<custo?'disabled':''} onclick="renovar(${j.id})">Renovar (${fmt(custo)})</button></td></tr>`).join('')}</table>${vencendo.some(({custo})=>m.caixa<custo)?'<p class="muted">Botões desativados indicam que o caixa não cobre a renovação.</p>':''}</div>`:'';
   return `<div class="painel" style="max-width:700px;margin:0 auto"><h1 style="color:var(--amarelo)">Fim da temporada ${state.temporada}</h1>
   <p class="muted">${CONF_NOME[m.conf]}</p>
   <table style="margin:14px 0">
@@ -854,12 +863,21 @@ function telaTemporada(){
   ${r.transicoes.some(tr=>tr.caem.includes(m.id))?'<div class="aviso">Seu time foi rebaixado.</div>':''}
   ${r.transicoes.some(tr=>tr.sobem.includes(m.id))?'<div class="ok">Acesso garantido pra divisão de cima!</div>':''}
   <p class="muted" style="margin-top:14px">Qualquer um pode avançar — vale pra todo mundo de uma vez (elenco de todos os times envelhece, acesso/rebaixamento acontece em todas as divisões).</p>
+  ${renovacoes}
+  <div class="painel" style="margin-top:20px"><h2>Mercado de técnicos</h2><p class="muted">Você pode deixar seu clube e assumir um clube livre para a próxima temporada.</p><select id="novoClube">${livres.map(t=>`<option value="${t.id}">${esc(t.nome)} — ${CONF_NOME[t.conf]} Série ${t.div} · força ${t.forca}</option>`).join('')}</select> <button onclick="trocarClube()">Assumir clube</button></div>
   <button class="primario" onclick="avancarTemporada()">Avançar pra temporada ${state.temporada+1}</button>
   </div>`;
 }
 function avancarTemporada(){
-  if(!confirm('Avançar pra próxima temporada? Vale pra todo mundo, não só pro seu clube.'))return;
-  socket.emit('avancarTemporada');
+  if(!confirm('Confirmar avanço? A temporada avança quando todos os clubes humanos aprovarem ou em 1 minuto.'))return;
+  socket.emit('avancarTemporada',{clubeId:meu().id});
+}
+function trocarClube(){
+  const novoClubeId=Number(document.getElementById('novoClube').value),atual=meu();
+  if(!Number.isInteger(novoClubeId)||!atual)return;
+  const novo=state.times[novoClubeId];
+  if(!confirm('Deixar o '+atual.nome+' e assumir o '+novo.nome+'?'))return;
+  socket.emit('trocarClube',{clubeId:atual.id,novoClubeId});
 }
 
 /* ============ MULTIPLAYER: conexão ============ */
