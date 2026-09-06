@@ -411,6 +411,15 @@ function ativarMundo(slug) {
     if (mandante) p.H = Motor.forcaTimeAoVivo(mundo, p, clube, true); else p.A = Motor.forcaTimeAoVivo(mundo, p, clube, false);
   }
 
+  // Trocar formação na pausa (igual ao solo: só remapeia quem já está em campo pra outras
+  // posições da nova formação, não mexe nos titulares) — mantém o boost de ataque total
+  // e a forma sorteada da partida, igual mudarEstiloPartida.
+  function mudarFormacaoPartida(clube, p, formacao) {
+    clube.formacao = formacao;
+    const mandante = p.g.casa === clube.id;
+    if (mandante) p.H = Motor.forcaTimeAoVivo(mundo, p, clube, true); else p.A = Motor.forcaTimeAoVivo(mundo, p, clube, false);
+  }
+
   function ativarAtaqueTotal(clube, p) {
     if (!Motor.podeAtaqueTotal(p, clube)) throw new Error('Ataque total só pode ser ativado perdendo ou empatando, depois dos 80 minutos.');
     Motor.ativarAtaqueTotal(mundo, p, clube);
@@ -422,6 +431,21 @@ function ativarMundo(slug) {
     mudarEstilo: (clube, p) => { clube.estilo = p.estilo; },
     autoEscalar: clube => Motor.autoEscalar(mundo, clube),
     escalarTrocar: (clube, p) => escalarTrocar(clube, p.a, p.b),
+    criarFormacaoPersonalizada: (clube, p) => {
+      const nome = String(p.nome || '').trim().slice(0, 30);
+      if (!nome) throw new Error('Dê um nome pra formação.');
+      const id = 'formacao-' + Date.now();
+      const ok = Motor.salvarFormacaoPersonalizada(mundo, clube, { id, nome, slots: Motor.formacaoDoClube(mundo, clube), coords: p.coords });
+      if (!ok) throw new Error('Não deu pra salvar a formação — posições inválidas.');
+    },
+    moverFormacaoPosicao: (clube, p) => {
+      const f = (clube.formacoesCustom || []).find(x => clube.formacao === 'custom:' + x.id);
+      if (!f) throw new Error('Escolha uma formação personalizada primeiro.');
+      const i = clube.titulares.indexOf(p.jogadorId);
+      if (i < 0) throw new Error('Selecione um titular antes de mover.');
+      if (!f.coords || f.coords.length !== 11) throw new Error('Essa formação ainda não tem posições customizadas.');
+      f.coords[i] = { x: Math.max(6, Math.min(94, f.coords[i].x + p.dx)), y: Math.max(6, Math.min(94, f.coords[i].y + p.dy)) };
+    },
     treinar: (clube, p) => {
       if (mundo.fimTemporada) throw new Error('Temporada encerrada.');
       if ((clube.pontosTreino || 0) <= 0) throw new Error('Sem pontos de treino sobrando nesta rodada.');
@@ -695,6 +719,16 @@ function ativarMundo(slug) {
       const p = partidaDoClube(clubeId);
       if (!clube || !p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
       mudarEstiloPartida(clube, p, estilo);
+      salvar();
+      nsp.emit('mundo', mundo);
+      nsp.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));
+    });
+
+    socket.on('partidaMudarFormacao', ({ clubeId, formacao }) => {
+      const clube = mundo.times[clubeId];
+      const p = partidaDoClube(clubeId);
+      if (!clube || !p) { socket.emit('erro', 'Você não tem partida ao vivo agora.'); return; }
+      mudarFormacaoPartida(clube, p, formacao);
       salvar();
       nsp.emit('mundo', mundo);
       nsp.emit('partidasAoVivo', partidasAoVivo.map(resumoPartida));

@@ -384,6 +384,12 @@ function jogadorForcado(){
   const pm=pmAtual(),m=meu(),sf=pm&&pm.subForcada&&pm.subForcada[m.id];
   return sf&&m.titulares.includes(sf)?J(sf):null;
 }
+function mudarFormacaoPausa(f){acaoPartida('partidaMudarFormacao',{formacao:f});}
+function campoPausa(m){
+  const slots=Motor.formacaoDoClube(state,m),custom=(m.formacoesCustom||[]).find(f=>m.formacao==='custom:'+f.id),c=custom&&custom.coords&&custom.coords.length===11?custom.coords:coords(custom?'4-4-2':m.formacao);
+  const forcado=jogadorForcado();
+  return `<div class="campo" style="max-width:420px;margin:0 auto"><div class="meio"></div><div class="circ"></div>${m.titulares.map((id,i)=>{const j=J(id),lesionado=forcado&&forcado.id===id;return `<div class="jog ${ui.sel===id?'sel':''}" style="left:${c[i].x}%;top:${c[i].y}%${lesionado?';outline:2px solid var(--vermelho);border-radius:6px':''}" onclick="clicarPartida(${id})" title="${lesionado?'LESIONADO — substituição obrigatória. ':''}${esc(j.nome)} | Posição: ${slots[i]}"><div class="cam" style="background:${m.cor1};color:${m.cor2}">${j.forca}</div><div class="nome">${lesionado?'🚑 ':''}${esc(j.nome)}</div></div>`;}).join('')}</div>`;
+}
 function painelSubstituicao(m,pm){
   const banco=m.jogadores.map(J).filter(j=>!m.titulares.includes(j.id)&&!j.suspenso&&!j.lesao&&!j.selecao).sort((a,b)=>b.forca-a.forca);
   const linha=j=>`<tr class="clic ${ui.sel===j.id?'sel':''}" onclick="clicarPartida(${j.id})"><td>${esc(j.nome)}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td></tr>`;
@@ -391,7 +397,9 @@ function painelSubstituicao(m,pm){
   const usadas=(pm.subsUsadas&&pm.subsUsadas[m.id])||0;
   return `<div class="painel" style="margin:12px 0;${forcado?'border-color:var(--vermelho)':''}">
   ${forcado?`<div class="aviso">🚑 Substituição obrigatória: <b>${esc(forcado.nome)}</b> está lesionado e precisa sair.${banco.length?'':' Não há ninguém disponível no banco — o time vai jogar com um a menos.'}</div>`:''}
+  <label>Formação durante a partida <select onchange="mudarFormacaoPausa(this.value)"><optgroup label="Formações prontas">${Object.keys(FORMACOES).map(f=>`<option value="${f}" ${f===m.formacao?'selected':''}>${f}</option>`).join('')}</optgroup>${(m.formacoesCustom||[]).length?`<optgroup label="Minhas formações">${m.formacoesCustom.map(f=>`<option value="custom:${f.id}" ${m.formacao==='custom:'+f.id?'selected':''}>${esc(f.nome)}</option>`).join('')}</optgroup>`:''}</select></label>
   <h3>Substituições — ${5-usadas} restantes</h3>
+  <div style="margin:0 0 14px">${campoPausa(m)}</div>
   <div class="grid g2"><div><p class="muted" style="margin:0 0 4px">Em campo</p><table>${m.titulares.map(id=>linha(J(id))).join('')}</table></div>
   <div><p class="muted" style="margin:0 0 4px">Banco</p><table>${banco.map(linha).join('')||'<tr><td class="muted">Sem opções no banco.</td></tr>'}</table></div></div>
   <p class="muted" style="margin-top:6px">Clique num titular e depois num jogador do banco para substituir, ou em dois titulares para trocar posições.</p>
@@ -503,27 +511,39 @@ function telaElenco(){
   '<p class="muted">Nenhum garoto na base no momento. Invista mais na aba Finanças pra aumentar as chances de revelação.</p>'}</div>
   ${painelIdolos(m)}`;
 }
+function caracteristicasTexto(j){return (j.caracteristicas||[]).map(id=>Motor.CARACTERISTICAS_ESPECIAIS[id]?.nome||'').filter(Boolean).join(', ');}
 function telaEscalacao(){
-  const m=meu(),slots=FORMACOES[m.formacao],c=coords(m.formacao);
+  const m=meu(),slots=Motor.formacaoDoClube(state,m),custom=(m.formacoesCustom||[]).find(f=>m.formacao==='custom:'+f.id),c=custom&&custom.coords&&custom.coords.length===11?custom.coords:coords(custom?'4-4-2':m.formacao);
   const banco=m.jogadores.map(J).filter(j=>!m.titulares.includes(j.id)).sort((a,b)=>POSICOES.indexOf(a.pos)-POSICOES.indexOf(b.pos)||b.forca-a.forca);
   const ft=forcaTime(m,true);
   return `<div class="taticas">
-    <label>Formação <select onchange="mudarFormacao(this.value)">${Object.keys(FORMACOES).map(f=>`<option ${f===m.formacao?'selected':''}>${f}</option>`).join('')}</select></label>
+    <label>Formação <select onchange="mudarFormacao(this.value)"><optgroup label="Formações prontas">${Object.keys(FORMACOES).map(f=>`<option value="${f}" ${f===m.formacao?'selected':''}>${f}</option>`).join('')}</optgroup>${(m.formacoesCustom||[]).length?`<optgroup label="Minhas formações">${m.formacoesCustom.map(f=>`<option value="custom:${f.id}" ${m.formacao==='custom:'+f.id?'selected':''}>${esc(f.nome)}</option>`).join('')}</optgroup>`:''}</select></label>
     <label>Estilo <select onchange="acao('mudarEstilo',{estilo:this.value})">${Object.entries(ESTILOS).map(([k,v])=>`<option value="${k}" ${k===m.estilo?'selected':''}>${v.nome}</option>`).join('')}</select></label>
     <button onclick="ui.sel=null;acao('autoEscalar')">Escalar automaticamente</button>
+    <button onclick="criarFormacaoPersonalizada()">Criar minha formação</button>
+    ${custom?`<button onclick="moverPosicao(-3,0)" title="Mover para a esquerda">←</button><button onclick="moverPosicao(3,0)" title="Mover para a direita">→</button><button onclick="moverPosicao(0,-3)" title="Mover para cima">↑</button><button onclick="moverPosicao(0,3)" title="Mover para baixo">↓</button>`:''}
     <span class="muted">Ataque <b class="num">${ft.ata.toFixed(0)}</b> · Defesa <b class="num">${ft.def.toFixed(0)}</b></span>
   </div>
   <div class="campo-wrap"><div>
     <div class="campo"><div class="meio"></div><div class="circ"></div>
     ${m.titulares.map((id,i)=>{const j=J(id),fora=j.pos!==slots[i];const tit=j.lesao?'Lesionado ('+j.lesao+'d, '+esc(j.lesaoTipo||'')+')':j.suspenso?'Suspenso ('+j.suspenso+'j)':j.selecao?'Convocado ('+j.selecao+'j)':'';return `<div class="jog ${ui.sel===id?'sel':''} ${fora?'fora':''}" style="left:${c[i].x}%;top:${c[i].y}%" onclick="clicar(${id})" title="${tit}">
-      <div class="cam" style="background:${m.cor1};color:${m.cor2}">${j.forca}</div><div class="nome">${esc(j.nome)}${fora?' ('+j.pos+')':''}${j.suspenso?' ⛔':''}${j.lesao?' 🚑':''}${j.selecao?' 🌟':''}</div></div>`;}).join('')}
+      <div class="cam" style="background:${m.cor1};color:${m.cor2}">${j.forca}</div><div class="nome">${esc(j.nome)}${fora?' ('+j.pos+')':''}${j.suspenso?' ⛔':''}${j.lesao?' 🚑':''}${j.selecao?' 🌟':''}</div><div class="muted" style="font-size:10px">${j.perna||'D'}${caracteristicasTexto(j)?' · '+esc(caracteristicasTexto(j)):''}</div></div>`;}).join('')}
     </div>
-    <p class="muted">Clique em um jogador do campo e depois em outro (do campo ou do banco) para trocar. Nome em amarelo = fora da posição natural.</p>
+    <p class="muted">Clique em um jogador do campo e depois em outro (do campo ou do banco) para trocar. Em uma formação personalizada, selecione um jogador e use as setas para mover sua posição. Nome em amarelo = fora da posição natural.</p>
   </div>
   <div class="painel banco"><h3>Banco</h3><table><tr><th>Nome</th><th>Pos</th><th class="r">Idade</th><th class="r">Força</th><th class="r">Moral</th></tr>
-  ${banco.map(j=>`<tr class="clic ${ui.sel===j.id?'sel':''}" onclick="clicar(${j.id})"><td>${esc(j.nome)}${j.suspenso?' <span class="neg" title="Suspenso ('+j.suspenso+'j)">⛔</span>':''}${j.lesao?' <span class="neg" title="'+esc(j.lesaoTipo||'Lesão')+' ('+j.lesao+'d)">🚑</span>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r num">${j.moral}</td></tr>`).join('')}</table></div></div>`;
+  ${banco.map(j=>`<tr class="clic ${ui.sel===j.id?'sel':''}" onclick="clicar(${j.id})"><td>${esc(j.nome)}<br><span class="muted">${j.perna||'D'}${caracteristicasTexto(j)?' · '+esc(caracteristicasTexto(j)):''}</span>${j.suspenso?' <span class="neg" title="Suspenso ('+j.suspenso+'j)">⛔</span>':''}${j.lesao?' <span class="neg" title="'+esc(j.lesaoTipo||'Lesão')+' ('+j.lesao+'d)">🚑</span>':''}</td><td><span class="tag ${j.pos}">${j.pos}</span></td><td class="r num">${j.idade}</td><td class="r"><span class="forca ${classeForca(j.forca)}">${j.forca}</span></td><td class="r num">${j.moral}</td></tr>`).join('')}</table></div></div>`;
 }
-function mudarFormacao(f){acao('mudarFormacao',{formacao:f});}
+function mudarFormacao(f){ui.sel=null;acao('mudarFormacao',{formacao:f});}
+function criarFormacaoPersonalizada(){
+  const m=meu(),nome=prompt('Nome da nova formação:','Minha formação');if(!nome||!nome.trim())return;
+  const atual=(m.formacoesCustom||[]).find(f=>m.formacao==='custom:'+f.id),coordsAtuais=atual&&atual.coords&&atual.coords.length===11?atual.coords:coords('4-4-2');
+  acao('criarFormacaoPersonalizada',{nome:nome.trim(),coords:coordsAtuais});
+}
+function moverPosicao(dx,dy){
+  if(ui.sel===null)return;
+  acao('moverFormacaoPosicao',{jogadorId:ui.sel,dx,dy});
+}
 function clicar(id){
   if(ui.sel===null||ui.sel===id){ui.sel=ui.sel===id?null:id;render();return;}
   const a=ui.sel,b=id;
